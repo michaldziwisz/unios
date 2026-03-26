@@ -37,7 +37,7 @@ struct MainTabView: View {
             }
             .tag(AppTab.settings)
         }
-        .onChange(of: appModel.selectedTab) { tab in
+        .onChange(of: appModel.selectedTab) { _, tab in
             appModel.select(tab: tab)
         }
     }

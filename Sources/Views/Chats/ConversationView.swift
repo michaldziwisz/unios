@@ -74,7 +74,7 @@ struct ConversationView: View {
                     }
                 }
             }
-            .onChange(of: messages.count) { _ in
+            .onChange(of: messages.count) { _, _ in
                 if let lastID = messages.last?.id {
                     DispatchQueue.main.async {
                         proxy.scrollTo(lastID, anchor: .bottom)
@@ -142,4 +142,3 @@ struct ConversationView: View {
         .background(.ultraThinMaterial)
     }
 }
-

@@ -1,6 +1,6 @@
 import SwiftUI
 
-private struct ContactConversationRoute: Identifiable {
+private struct ContactConversationRoute: Identifiable, Hashable {
     let id: UUID
 }
 
