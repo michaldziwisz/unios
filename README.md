@@ -48,7 +48,10 @@ If the Telegram credentials are not present, UniOS still builds and runs in demo
 The `TDLibKit` path currently covers:
 
 - Telegram phone-number auth
+- email-address step when Telegram requires it
+- email-code verification
 - code verification
+- device-confirmation link and QR handoff for accounts that require confirmation on another logged-in device
 - 2-step password verification
 - restoring an already authorized TDLib session
 - synced chat list
@@ -61,8 +64,8 @@ Still intentionally incomplete:
 - call history and Telegram calling
 - mute/unmute sync
 - media upload
-- QR login
-- registration and email-based auth branches
+- native Apple ID / Google ID auth tokens for the email branch
+- registration
 - production signing and App Store distribution
 
 ## CI

@@ -26,8 +26,11 @@ struct TelegramAccountProfile: Hashable {
 enum TelegramSignInState: Hashable {
     case unavailable(message: String)
     case waitingForPhone
+    case waitingForEmailAddress(message: String)
+    case waitingForEmailCode(message: String, emailPattern: String, codeLength: Int)
     case working(message: String)
     case waitingForCode(message: String)
+    case waitingForOtherDeviceConfirmation(message: String, link: String)
     case waitingForPassword(hint: String)
     case ready
     case failed(message: String)
@@ -38,9 +41,15 @@ enum TelegramSignInState: Hashable {
             return message
         case .waitingForPhone:
             return "Enter the phone number for your Telegram account."
+        case let .waitingForEmailAddress(message):
+            return message
+        case let .waitingForEmailCode(message, _, _):
+            return message
         case let .working(message):
             return message
         case let .waitingForCode(message):
+            return message
+        case let .waitingForOtherDeviceConfirmation(message, _):
             return message
         case let .waitingForPassword(hint):
             return hint.isEmpty ? "Enter your Telegram two-step verification password." : "Enter your Telegram two-step verification password. Hint: \(hint)."
@@ -53,6 +62,20 @@ enum TelegramSignInState: Hashable {
 
     var acceptsPhoneNumber: Bool {
         if case .waitingForPhone = self {
+            return true
+        }
+        return false
+    }
+
+    var acceptsEmailAddress: Bool {
+        if case .waitingForEmailAddress = self {
+            return true
+        }
+        return false
+    }
+
+    var acceptsEmailCode: Bool {
+        if case .waitingForEmailCode = self {
             return true
         }
         return false
@@ -77,6 +100,13 @@ enum TelegramSignInState: Hashable {
             return true
         }
         return false
+    }
+
+    var confirmationLink: String? {
+        if case let .waitingForOtherDeviceConfirmation(_, link) = self {
+            return link
+        }
+        return nil
     }
 }
 
@@ -138,6 +168,17 @@ final class TelegramService {
             isCurrentPhoneNumber: false
         )
         _ = try await client.setAuthenticationPhoneNumber(phoneNumber: phoneNumber, settings: settings)
+    }
+
+    func submitEmailAddress(_ emailAddress: String) async throws {
+        _ = try await client.setAuthenticationEmailAddress(emailAddress: emailAddress)
+    }
+
+    func submitEmailCode(_ code: String) async throws {
+        let authentication = EmailAddressAuthentication.emailAddressAuthenticationCode(
+            EmailAddressAuthenticationCode(code: code)
+        )
+        _ = try await client.checkAuthenticationEmailCode(code: authentication)
     }
 
     func submitCode(_ code: String) async throws {
@@ -342,9 +383,30 @@ final class TelegramService {
         case .authorizationStateWaitPhoneNumber:
             return .waitingForPhone
 
+        case let .authorizationStateWaitEmailAddress(value):
+            return .waitingForEmailAddress(
+                message: emailAddressPrompt(allowAppleID: value.allowAppleId, allowGoogleID: value.allowGoogleId)
+            )
+
+        case let .authorizationStateWaitEmailCode(value):
+            return .waitingForEmailCode(
+                message: emailCodePrompt(
+                    pattern: value.codeInfo.emailAddressPattern,
+                    length: value.codeInfo.length
+                ),
+                emailPattern: value.codeInfo.emailAddressPattern,
+                codeLength: value.codeInfo.length
+            )
+
         case let .authorizationStateWaitCode(value):
             let message = "Enter the Telegram code sent to \(value.codeInfo.phoneNumber)."
             return .waitingForCode(message: message)
+
+        case let .authorizationStateWaitOtherDeviceConfirmation(value):
+            return .waitingForOtherDeviceConfirmation(
+                message: "Confirm this sign in from another logged-in Telegram device. You can use the Telegram link or QR code shown below.",
+                link: value.link
+            )
 
         case let .authorizationStateWaitPassword(value):
             return .waitingForPassword(hint: value.passwordHint)
@@ -358,17 +420,12 @@ final class TelegramService {
         case .authorizationStateClosing, .authorizationStateClosed:
             return .working(message: "Closing the Telegram session.")
 
-        case .authorizationStateWaitOtherDeviceConfirmation:
-            return .failed(message: "QR-code Telegram login is not wired into this build yet.")
-
         case .authorizationStateWaitRegistration:
             return .failed(message: "New account registration is not wired into this build yet.")
 
         case .authorizationStateWaitPremiumPurchase:
             return .failed(message: "Telegram Premium purchase confirmation is not supported in this build.")
 
-        case .authorizationStateWaitEmailAddress, .authorizationStateWaitEmailCode:
-            return .failed(message: "Email-based Telegram authorization is not supported in this build.")
         }
     }
 
@@ -409,6 +466,25 @@ final class TelegramService {
         try fileManager.createDirectory(at: filesDirectory, withIntermediateDirectories: true)
 
         return (databaseDirectory, filesDirectory)
+    }
+
+    private func emailAddressPrompt(allowAppleID: Bool, allowGoogleID: Bool) -> String {
+        var message = "Telegram needs the email address linked to this account."
+        if allowAppleID || allowGoogleID {
+            message += " Apple ID and Google ID shortcuts are available in TDLib, but this build currently continues with the email address path."
+        }
+        return message
+    }
+
+    private func emailCodePrompt(pattern: String, length: Int) -> String {
+        let sanitizedPattern = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        let destination = sanitizedPattern.isEmpty ? "your email address" : sanitizedPattern
+
+        guard length > 0 else {
+            return "Enter the Telegram code sent to \(destination)."
+        }
+
+        return "Enter the \(length)-character Telegram code sent to \(destination)."
     }
 
     private var deviceModel: String {

@@ -9,6 +9,8 @@ final class UniOSAppModel: ObservableObject {
     @Published var showMissedCallsOnly = false
     @Published var signInPhoneNumber = "+48 600 000 000"
     @Published var signInName = "VoiceOver Pilot"
+    @Published var signInEmailAddress = ""
+    @Published var signInEmailCode = ""
     @Published var signInVerificationCode = ""
     @Published var signInPassword = ""
     @Published var chats: [Chat]
@@ -110,6 +112,60 @@ final class UniOSAppModel: ObservableObject {
                 try await telegramService.submitPhoneNumber(phoneNumber)
             } catch {
                 await self?.handleTelegramFailure(error, fallbackState: .waitingForPhone)
+            }
+        }
+    }
+
+    func submitTelegramEmailAddress() {
+        guard let telegramService else {
+            announce("Telegram credentials are unavailable in this build.")
+            return
+        }
+
+        let emailAddress = signInEmailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !emailAddress.isEmpty else {
+            announce("Email address is empty.")
+            return
+        }
+
+        telegramSignInState = .working(message: "Sending the Telegram email address.")
+        Task { [weak self] in
+            do {
+                try await telegramService.submitEmailAddress(emailAddress)
+            } catch {
+                await self?.handleTelegramFailure(
+                    error,
+                    fallbackState: .waitingForEmailAddress(message: "Enter the email address linked to this Telegram account.")
+                )
+            }
+        }
+    }
+
+    func submitTelegramEmailCode() {
+        guard let telegramService else {
+            announce("Telegram credentials are unavailable in this build.")
+            return
+        }
+
+        let code = signInEmailCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty else {
+            announce("Email code is empty.")
+            return
+        }
+
+        telegramSignInState = .working(message: "Checking the Telegram email code.")
+        Task { [weak self] in
+            do {
+                try await telegramService.submitEmailCode(code)
+            } catch {
+                await self?.handleTelegramFailure(
+                    error,
+                    fallbackState: .waitingForEmailCode(
+                        message: "Enter the Telegram code sent to your email address.",
+                        emailPattern: "",
+                        codeLength: 0
+                    )
+                )
             }
         }
     }
@@ -410,7 +466,7 @@ final class UniOSAppModel: ObservableObject {
                 }
             }
 
-        case .waitingForCode, .waitingForPassword, .failed:
+        case .waitingForEmailAddress, .waitingForEmailCode, .waitingForCode, .waitingForOtherDeviceConfirmation, .waitingForPassword, .failed:
             if previousState != newState {
                 announce(newState.statusMessage)
             }
@@ -420,6 +476,10 @@ final class UniOSAppModel: ObservableObject {
                 isAuthenticated = false
                 telegramProfile = nil
             }
+            signInEmailAddress = ""
+            signInEmailCode = ""
+            signInVerificationCode = ""
+            signInPassword = ""
 
         case .working, .unavailable:
             break
@@ -443,6 +503,8 @@ final class UniOSAppModel: ObservableObject {
             if !profile.phoneNumber.isEmpty {
                 signInPhoneNumber = profile.phoneNumber
             }
+            signInEmailAddress = ""
+            signInEmailCode = ""
             signInVerificationCode = ""
             signInPassword = ""
             sessionSource = .telegram
@@ -562,6 +624,8 @@ final class UniOSAppModel: ObservableObject {
         }
         announce(message)
         if case .waitingForPhone = fallbackState {
+            signInEmailAddress = ""
+            signInEmailCode = ""
             signInVerificationCode = ""
             signInPassword = ""
         }
@@ -577,6 +641,8 @@ final class UniOSAppModel: ObservableObject {
         selectedChatFolder = .all
         chatSearchText = ""
         showMissedCallsOnly = false
+        signInEmailAddress = ""
+        signInEmailCode = ""
         signInVerificationCode = ""
         signInPassword = ""
         chats = seed.chats
