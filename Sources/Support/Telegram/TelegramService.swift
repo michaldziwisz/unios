@@ -678,7 +678,7 @@ final class TelegramService {
         return Foundation.Date(timeIntervalSince1970: TimeInterval(timestamp))
     }
 
-    private func userFacingMessage(for error: Error) -> String {
+    private func userFacingMessage(for error: any Error) -> String {
         let description = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         return description.isEmpty ? "Telegram request failed." : description
     }

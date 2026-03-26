@@ -602,7 +602,7 @@ final class UniOSAppModel: ObservableObject {
         chats[index] = chat
     }
 
-    private func userFacingMessage(for error: Error) -> String {
+    private func userFacingMessage(for error: any Error) -> String {
         let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? "Telegram request failed." : text
     }
