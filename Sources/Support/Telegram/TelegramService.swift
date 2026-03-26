@@ -671,11 +671,11 @@ final class TelegramService {
         !chat.notificationSettings.useDefaultMuteFor && chat.notificationSettings.muteFor > 0
     }
 
-    private func messageDate(for timestamp: Int?) -> Date {
+    private func messageDate(for timestamp: Int?) -> Foundation.Date {
         guard let timestamp, timestamp > 0 else {
             return .now
         }
-        return Date(timeIntervalSince1970: TimeInterval(timestamp))
+        return Foundation.Date(timeIntervalSince1970: TimeInterval(timestamp))
     }
 
     private func userFacingMessage(for error: Error) -> String {
