@@ -1,0 +1,74 @@
+name: UniOS
+
+options:
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    PRODUCT_NAME: UniOS
+    PRODUCT_BUNDLE_IDENTIFIER: net.dziwisz.unios
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    SWIFT_VERSION: "5.10"
+    GENERATE_INFOPLIST_FILE: YES
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    INFOPLIST_KEY_CFBundleDisplayName: UniOS
+    INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
+    INFOPLIST_KEY_NSContactsUsageDescription: UniOS uses contacts to expose accessible quick actions for conversations.
+    INFOPLIST_KEY_NSMicrophoneUsageDescription: UniOS reserves microphone access for future voice note composition.
+    INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleDefault
+    TARGETED_DEVICE_FAMILY: 1,2
+
+targets:
+  UniOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources
+    settings:
+      base:
+        INFOPLIST_KEY_CFBundleName: UniOS
+        PRODUCT_MODULE_NAME: UniOS
+        SUPPORTS_MACCATALYST: NO
+
+  UniOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests
+    dependencies:
+      - target: UniOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: net.dziwisz.unios.tests
+        PRODUCT_MODULE_NAME: UniOSTests
+
+schemes:
+  UniOS:
+    build:
+      targets:
+        UniOS: all
+        UniOSTests: [test]
+    run:
+      config: Debug
+      executable: UniOS
+    test:
+      config: Debug
+      gatherCoverageData: true
+      coverageTargets:
+        - UniOS
+      targets:
+        - name: UniOSTests
+    archive:
+      config: Release

@@ -1,0 +1,111 @@
+name: iOS CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Select an available iPhone simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          SIMULATOR_ID="$(xcrun simctl list devices available | sed -nE 's/.*iPhone[^()]* \(([0-9A-F-]+)\) \((Booted|Shutdown)\).*/\1/p' | head -n 1)"
+          if [ -z "$SIMULATOR_ID" ]; then
+            echo "No available iPhone simulator found."
+            exit 1
+          fi
+          echo "id=$SIMULATOR_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild \
+            -project UniOS.xcodeproj \
+            -scheme UniOS \
+            -destination "id=${{ steps.simulator.outputs.id }}" \
+            -resultBundlePath build/UniOSTests.xcresult \
+            clean test
+
+      - name: Archive unsigned iOS app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project UniOS.xcodeproj \
+            -scheme UniOS \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/UniOS.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            clean archive
+
+      - name: Package IPA artifact
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find build/UniOS.xcarchive/Products/Applications -maxdepth 1 -name '*.app' -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "Archive did not contain an .app bundle."
+            exit 1
+          fi
+
+          rm -rf build/Payload build/UniOS.ipa build/UniOS.xcarchive.zip
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent build/Payload build/UniOS.ipa
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent build/UniOS.xcarchive build/UniOS.xcarchive.zip
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unios-ipa
+          path: build/UniOS.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Xcode archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: unios-xcarchive
+          path: build/UniOS.xcarchive.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unios-test-results
+          path: build/UniOSTests.xcresult
+          if-no-files-found: warn
+          retention-days: 14
+
