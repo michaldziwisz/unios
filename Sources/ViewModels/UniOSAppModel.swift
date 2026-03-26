@@ -554,7 +554,7 @@ final class UniOSAppModel: ObservableObject {
         }
     }
 
-    private func handleTelegramFailure(_ error: Error, fallbackState: TelegramSignInState) async {
+    private func handleTelegramFailure(_ error: any Swift.Error, fallbackState: TelegramSignInState) async {
         let message = userFacingMessage(for: error)
         telegramSignInState = .failed(message: message)
         if !isAuthenticated {
@@ -602,7 +602,7 @@ final class UniOSAppModel: ObservableObject {
         chats[index] = chat
     }
 
-    private func userFacingMessage(for error: any Error) -> String {
+    private func userFacingMessage(for error: any Swift.Error) -> String {
         let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? "Telegram request failed." : text
     }
