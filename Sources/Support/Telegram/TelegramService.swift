@@ -99,11 +99,23 @@ final class TelegramService {
     private let client: TDLibClient
 
     init(configuration: TelegramAppConfiguration) {
+        final class UpdateRelay {
+            var handler: ((Data) -> Void)?
+
+            func forward(_ data: Data) {
+                handler?(data)
+            }
+        }
+
         self.configuration = configuration
         self.manager = TDLibClientManager()
-        self.client = manager.createClient(updateHandler: { [weak self] data, _ in
-            self?.handleUpdate(data)
+        let updateRelay = UpdateRelay()
+        self.client = manager.createClient(updateHandler: { [updateRelay] data, _ in
+            updateRelay.forward(data)
         })
+        updateRelay.handler = { [weak self] data in
+            self?.handleUpdate(data)
+        }
     }
 
     deinit {
