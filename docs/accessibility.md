@@ -5,6 +5,7 @@ UniOS treats VoiceOver as a product requirement, not a post-build audit.
 ## Implemented In Code
 
 - Every primary action has visible text plus an accessibility label.
+- Authentication status is exposed as plain language state, including Telegram code/password steps when TDLibKit is enabled.
 - Conversation rows expose title, summary, timestamp, unread count, mute state, and pinned state.
 - Conversation messages expose sender, time, and delivery status in spoken form.
 - The composer can receive accessibility focus when a chat opens.
@@ -22,4 +23,3 @@ The following cannot be signed off from source code alone:
 - spoken behavior when system audio is already active
 
 Validate these on a physical iPhone before any distribution build is treated as release quality.
-

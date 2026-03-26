@@ -29,6 +29,20 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Generate Telegram secrets xcconfig
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_USE_TEST_DC: "NO"
+        run: |
+          set -euo pipefail
+          if [ -n "${TELEGRAM_API_ID:-}" ] && [ -n "${TELEGRAM_API_HASH:-}" ]; then
+            chmod +x scripts/generate_telegram_secrets.sh
+            ./scripts/generate_telegram_secrets.sh
+          else
+            echo "Telegram API credentials are not configured for CI. Building with demo fallback."
+          fi
+
       - name: Generate Xcode project
         run: xcodegen generate
 
@@ -108,4 +122,3 @@ jobs:
           path: build/UniOSTests.xcresult
           if-no-files-found: warn
           retention-days: 14
-

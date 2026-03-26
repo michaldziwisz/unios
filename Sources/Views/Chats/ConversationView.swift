@@ -62,7 +62,7 @@ struct ConversationView: View {
                 composerBar(chatTitle: chat.title)
             }
             .onAppear {
-                appModel.markChatRead(chatID)
+                appModel.loadConversationIfNeeded(chatID: chatID)
                 if let lastID = messages.last?.id {
                     DispatchQueue.main.async {
                         proxy.scrollTo(lastID, anchor: .bottom)
@@ -90,7 +90,7 @@ struct ConversationView: View {
                 .font(.headline)
                 .foregroundStyle(UniOSTheme.tint)
 
-            Text("\(chat.participants.count) participant\(chat.participants.count == 1 ? "" : "s")")
+            Text(chat.participantDescription)
                 .font(.subheadline)
                 .foregroundStyle(UniOSTheme.quietText)
 
@@ -134,6 +134,7 @@ struct ConversationView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityHint("Sends the current message.")
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)

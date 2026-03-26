@@ -67,10 +67,9 @@ struct CallsView: View {
                 ContentUnavailableView(
                     "No Calls",
                     systemImage: "phone",
-                    description: Text("There are no call records for the selected filter.")
+                    description: Text(appModel.sessionSource == .telegram ? "Telegram call history is not connected in this build yet." : "There are no call records for the selected filter.")
                 )
             }
         }
     }
 }
-

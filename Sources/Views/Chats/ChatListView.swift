@@ -80,9 +80,14 @@ struct ChatListView: View {
                 .font(.title3.weight(.bold))
             Text("\(appModel.filteredChats.count) conversations visible, \(folderCounts[.unread] ?? 0) still unread.")
                 .foregroundStyle(UniOSTheme.quietText)
-            Text("Unread triage stays available from the top bar for VoiceOver users who need quick orientation.")
+            Text(appModel.sessionSource == .telegram ? "The current chat list is synchronized through TDLibKit. Unread triage stays available from the top bar for quick orientation." : "Unread triage stays available from the top bar for VoiceOver users who need quick orientation.")
                 .font(.subheadline)
                 .foregroundStyle(UniOSTheme.quietText)
+            if appModel.isSyncingTelegramData, appModel.sessionSource == .telegram {
+                Label("Refreshing Telegram conversations", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(UniOSTheme.tint)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .uniosCard()
@@ -91,4 +96,3 @@ struct ChatListView: View {
         .accessibilityElement(children: .combine)
     }
 }
-

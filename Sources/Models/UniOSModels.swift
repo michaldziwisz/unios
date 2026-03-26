@@ -121,6 +121,7 @@ struct Message: Identifiable, Hashable {
     var status: MessageDeliveryStatus
     var kind: MessageKind
     var isPinned: Bool = false
+    var telegramMessageID: Int64? = nil
 
     var timestampLabel: String {
         timestamp.formatted(date: .omitted, time: .shortened)
@@ -149,9 +150,11 @@ struct Chat: Identifiable, Hashable {
     var isMuted: Bool
     var isPinned: Bool
     var participants: [String]
+    var participantSummary: String? = nil
     var lastUpdated: Date
     var messages: [Message]
     var avatarHue: Double
+    var telegramChatID: Int64? = nil
 
     var initials: String {
         let initials = title
@@ -182,6 +185,13 @@ struct Chat: Identifiable, Hashable {
             segments.append("Pinned")
         }
         return segments.joined(separator: ", ")
+    }
+
+    var participantDescription: String {
+        if let participantSummary, !participantSummary.isEmpty {
+            return participantSummary
+        }
+        return "\(participants.count) participant\(participants.count == 1 ? "" : "s")"
     }
 
     func voiceOverLabel(speakContext: Bool) -> String {
@@ -218,6 +228,7 @@ struct Contact: Identifiable, Hashable {
     var isFavorite: Bool
     var avatarHue: Double
     var note: String
+    var telegramUserID: Int64? = nil
 
     var initials: String {
         let initials = name
@@ -288,4 +299,3 @@ struct UniOSSeedData: Hashable {
     var calls: [CallLog]
     var accessibilityPreferences: AccessibilityPreferences
 }
-

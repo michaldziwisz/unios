@@ -9,6 +9,11 @@ configs:
   Debug: debug
   Release: release
 
+packages:
+  TDLibKit:
+    url: https://github.com/Swiftgram/TDLibKit
+    exactVersion: 1.5.2-tdlib-1.8.62-af0cb1d3
+
 settings:
   base:
     PRODUCT_NAME: UniOS
@@ -22,6 +27,9 @@ settings:
     INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
     INFOPLIST_KEY_NSContactsUsageDescription: UniOS uses contacts to expose accessible quick actions for conversations.
     INFOPLIST_KEY_NSMicrophoneUsageDescription: UniOS reserves microphone access for future voice note composition.
+    INFOPLIST_KEY_TELEGRAM_API_HASH: $(TELEGRAM_API_HASH)
+    INFOPLIST_KEY_TELEGRAM_API_ID: $(TELEGRAM_API_ID)
+    INFOPLIST_KEY_TELEGRAM_USE_TEST_DC: $(TELEGRAM_USE_TEST_DC)
     INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
     INFOPLIST_KEY_UILaunchScreen_Generation: YES
     INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleDefault
@@ -32,8 +40,13 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
+    configFiles:
+      Debug: Config/Base.xcconfig
+      Release: Config/Base.xcconfig
     sources:
       - path: Sources
+    dependencies:
+      - package: TDLibKit
     settings:
       base:
         INFOPLIST_KEY_CFBundleName: UniOS

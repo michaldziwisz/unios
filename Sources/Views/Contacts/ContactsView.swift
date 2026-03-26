@@ -36,6 +36,15 @@ struct ContactsView: View {
         .navigationDestination(item: $route) { route in
             ConversationView(chatID: route.id)
         }
+        .overlay {
+            if favoriteContacts.isEmpty && otherContacts.isEmpty {
+                ContentUnavailableView(
+                    "No Contacts",
+                    systemImage: "person.crop.circle.badge.questionmark",
+                    description: Text(appModel.sessionSource == .telegram ? "Telegram contacts are still syncing or unavailable for this account." : "There are no contacts in the current demo workspace.")
+                )
+            }
+        }
     }
 
     private func contactRow(contact: Contact, route: Binding<ContactConversationRoute?>) -> some View {
@@ -57,8 +66,12 @@ struct ContactsView: View {
 
             HStack {
                 Button {
-                    let chatID = appModel.startChat(with: contact)
-                    route.wrappedValue = ContactConversationRoute(id: chatID)
+                    appModel.startChat(with: contact) { chatID in
+                        guard let chatID else {
+                            return
+                        }
+                        route.wrappedValue = ContactConversationRoute(id: chatID)
+                    }
                 } label: {
                     Label("Message", systemImage: "bubble.left.fill")
                 }

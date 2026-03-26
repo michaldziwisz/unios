@@ -12,28 +12,64 @@ This repository does not attempt a full 1:1 port of Unigram. It reinterprets the
 - Settings
 - Accessibility center for VoiceOver users
 
+The current build keeps a demo workspace and also includes a real Telegram bridge through [Swiftgram/TDLibKit](https://github.com/Swiftgram/TDLibKit) when Telegram API credentials are available locally or through CI secrets.
+
 ## Priorities
 
 - Native Swift and SwiftUI
 - VoiceOver clarity before visual polish
 - Dynamic Type-friendly layouts
 - Explicit accessibility labels, values, and hints
+- Real Telegram auth, chat sync, history loading, and text sending through TDLibKit when configured
 - GitHub-hosted macOS CI producing an unsigned `.ipa` artifact
 
 ## Local Development
 
 1. Install Xcode and XcodeGen.
-2. Generate the project:
+2. Optional but recommended for real Telegram sign in: generate the local `xcconfig` from your Postmaster credentials:
+
+```bash
+./scripts/generate_telegram_secrets.sh
+```
+
+This writes `Config/TelegramSecrets.xcconfig`, which is ignored by git.
+
+3. Generate the project:
 
 ```bash
 xcodegen generate
 open UniOS.xcodeproj
 ```
 
+If the Telegram credentials are not present, UniOS still builds and runs in demo mode.
+
+## Telegram Integration
+
+The `TDLibKit` path currently covers:
+
+- Telegram phone-number auth
+- code verification
+- 2-step password verification
+- restoring an already authorized TDLib session
+- synced chat list
+- synced chat history when a conversation opens
+- sending text messages
+- loading Telegram contacts into the Contacts tab
+
+Still intentionally incomplete:
+
+- call history and Telegram calling
+- mute/unmute sync
+- media upload
+- QR login
+- registration and email-based auth branches
+- production signing and App Store distribution
+
 ## CI
 
 The GitHub Actions workflow:
 
+- optionally generates `Config/TelegramSecrets.xcconfig` from repository secrets
 - installs XcodeGen on a GitHub-hosted macOS runner
 - generates the Xcode project
 - runs unit tests on an available iPhone simulator
@@ -41,8 +77,12 @@ The GitHub Actions workflow:
 - packages the `.app` into an unsigned `.ipa`
 - uploads the `.ipa` and the archive as workflow artifacts
 
+If you want the CI artifact to include a Telegram-capable build, set these repository secrets:
+
+- `TELEGRAM_API_ID`
+- `TELEGRAM_API_HASH`
+
 ## Reference
 
 - Unigram feature map notes: [docs/unigram-mapping.md](docs/unigram-mapping.md)
 - Accessibility decisions: [docs/accessibility.md](docs/accessibility.md)
-

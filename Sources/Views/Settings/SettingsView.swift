@@ -76,7 +76,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(appModel.profileName)
                     .font(.title2.weight(.bold))
-                Text("VoiceOver-first workspace")
+                Text(appModel.activeAccountHandle)
                     .font(.headline)
                     .foregroundStyle(UniOSTheme.tint)
                 Text(appModel.latestAnnouncement.isEmpty ? "No announcements yet." : appModel.latestAnnouncement)
@@ -123,7 +123,7 @@ struct SettingsView: View {
                 Button(role: .destructive) {
                     appModel.signOut()
                 } label: {
-                    Label("Sign Out Of Demo", systemImage: "rectangle.portrait.and.arrow.right")
+                    Label(appModel.sessionSource == .telegram ? "Sign Out Of Telegram" : "Sign Out Of Demo", systemImage: "rectangle.portrait.and.arrow.right")
                 }
             }
         }

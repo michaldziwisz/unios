@@ -5,4 +5,4 @@ UniOS.xcodeproj/
 *.xcarchive
 *.ipa
 *.xcresult
-
+Config/TelegramSecrets.xcconfig
