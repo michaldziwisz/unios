@@ -393,7 +393,7 @@ final class TelegramCallMediaEngine {
 
     func addSignalingData(_ data: Data) {
         queueBridge.dispatch { [weak self] in
-            self?.context?.addSignalingData(data)
+            self?.context?.addSignaling(data)
         }
     }
 
