@@ -88,10 +88,27 @@ copy_library() {
   local cpu="$1"
   local output_dir="$2"
   local library_path
+  local platform_label
+
+  case "$cpu" in
+    ios_arm64)
+      platform_label="@build_bazel_apple_support//platforms:ios_arm64"
+      ;;
+    ios_sim_arm64)
+      platform_label="@build_bazel_apple_support//platforms:ios_sim_arm64"
+      ;;
+    *)
+      echo "Unsupported TgVoipWebrtc target cpu=$cpu." >&2
+      exit 1
+      ;;
+  esac
 
   (
     cd "$WORK_DIR"
-    USE_BAZEL_VERSION="$TELEGRAM_BAZEL_VERSION" "$BAZEL_BIN" build --cpu="$cpu" //submodules/TgVoipWebrtc:TgVoipWebrtc
+    USE_BAZEL_VERSION="$TELEGRAM_BAZEL_VERSION" "$BAZEL_BIN" build \
+      --cpu="$cpu" \
+      --platforms="$platform_label" \
+      //submodules/TgVoipWebrtc:TgVoipWebrtc
   )
   library_path="$(find "$WORK_DIR/bazel-bin" -path '*submodules/TgVoipWebrtc*' -name 'libTgVoipWebrtc.a' -print -quit)"
   if [[ -z "$library_path" ]]; then
