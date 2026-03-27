@@ -30,6 +30,7 @@ final class UniOSAppModel: ObservableObject {
     private let seed: UniOSSeedData
     private let telegramService: TelegramService?
     private var overviewRefreshTask: Task<Void, Never>?
+    private static let isRunningUnitTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     init(seed: UniOSSeedData = .preview) {
         self.seed = seed
@@ -37,6 +38,13 @@ final class UniOSAppModel: ObservableObject {
         self.contacts = seed.contacts
         self.calls = seed.calls
         self.accessibilityPreferences = seed.accessibilityPreferences
+
+        if Self.isRunningUnitTests {
+            self.telegramService = nil
+            self.sessionSource = .demo
+            self.telegramSignInState = .unavailable(message: "Telegram bootstrap is disabled while unit tests are running.")
+            return
+        }
 
         if let configuration = TelegramAppConfiguration.load() {
             let service = TelegramService(configuration: configuration)
