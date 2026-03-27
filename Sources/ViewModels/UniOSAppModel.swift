@@ -133,7 +133,7 @@ final class UniOSAppModel: ObservableObject {
                 guard let self else {
                     return
                 }
-                let telegramService = try await self.startTelegramSessionIfNeeded()
+                let telegramService = try await self.prepareTelegramForPhoneAuthentication()
                 guard self.telegramSignInState.acceptsPhoneNumber || self.telegramSignInState == .waitingForPhone else {
                     return
                 }
@@ -987,6 +987,24 @@ final class UniOSAppModel: ObservableObject {
             await handleTelegramFailure(error, fallbackState: .waitingForPhone)
             throw error
         }
+    }
+
+    private func prepareTelegramForPhoneAuthentication() async throws -> TelegramService {
+        let telegramService = try await startTelegramSessionIfNeeded()
+
+        guard telegramSignInState == .ready else {
+            return telegramService
+        }
+
+        telegramSignInState = .working(message: "Resetting the restored Telegram session.")
+        telegramProfile = nil
+        activeCallSession = nil
+
+        try await telegramService.logOut()
+        hasBootstrappedTelegramSession = false
+
+        let restartedService = try await startTelegramSessionIfNeeded()
+        return restartedService
     }
 
     private func ensureTelegramService() throws -> TelegramService {
