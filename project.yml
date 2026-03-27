@@ -21,20 +21,7 @@ settings:
     MARKETING_VERSION: 0.1.0
     CURRENT_PROJECT_VERSION: 1
     SWIFT_VERSION: "5.10"
-    GENERATE_INFOPLIST_FILE: YES
     ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-    INFOPLIST_KEY_CFBundleDisplayName: UniOS
-    INFOPLIST_KEY_NSCameraUsageDescription: UniOS uses the camera to capture accessible photo and video messages.
-    INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
-    INFOPLIST_KEY_NSContactsUsageDescription: UniOS uses contacts to expose accessible quick actions for conversations.
-    INFOPLIST_KEY_NSMicrophoneUsageDescription: UniOS uses the microphone to record accessible voice notes.
-    INFOPLIST_KEY_NSPhotoLibraryUsageDescription: UniOS uses your photo library to attach accessible media messages.
-    INFOPLIST_KEY_UniOSTelegramAPIHash: $(TELEGRAM_API_HASH)
-    INFOPLIST_KEY_UniOSTelegramAPIID: $(TELEGRAM_API_ID)
-    INFOPLIST_KEY_UniOSTelegramUseTestDC: $(TELEGRAM_USE_TEST_DC)
-    INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-    INFOPLIST_KEY_UILaunchScreen_Generation: YES
-    INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleDefault
     TARGETED_DEVICE_FAMILY: 1,2
 
 targets:
@@ -51,7 +38,8 @@ targets:
       - package: TDLibKit
     settings:
       base:
-        INFOPLIST_KEY_CFBundleName: UniOS
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Config/UniOS-Info.plist
         PRODUCT_MODULE_NAME: UniOS
         SUPPORTS_MACCATALYST: NO
 
