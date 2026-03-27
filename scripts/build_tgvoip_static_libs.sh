@@ -181,17 +181,16 @@ resolve_archive_path() {
   return 1
 }
 
-query_archive_paths_for_label() {
+query_archive_paths_for_cpu() {
   local cpu="$1"
   local platform_label="$2"
-  local label="$3"
 
   (
     cd "$WORK_DIR"
     USE_BAZEL_VERSION="$TELEGRAM_BAZEL_VERSION" "$BAZEL_BIN" cquery \
       --cpu="$cpu" \
       --platforms="$platform_label" \
-      "$label" \
+      "deps(//submodules/TgVoipWebrtc:TgVoipWebrtc)" \
       --output=files
   )
 }
@@ -204,7 +203,6 @@ bundle_archives_for_cpu() {
   local -a archives=()
   local archive_path
   local resolved_path
-  local label
 
   platform_label="$(platform_label_for_cpu "$cpu")"
 
@@ -215,11 +213,7 @@ bundle_archives_for_cpu() {
       continue
     fi
     archives+=("$resolved_path")
-  done < <(
-    for label in "${ARCHIVE_OUTPUT_LABELS[@]}"; do
-      query_archive_paths_for_label "$cpu" "$platform_label" "$label"
-    done | sort -u
-  )
+  done < <(query_archive_paths_for_cpu "$cpu" "$platform_label" | sort -u)
 
   if [[ ${#archives[@]} -eq 0 ]]; then
     echo "Unable to locate target static archives for cpu=$cpu." >&2
