@@ -84,24 +84,28 @@ chmod +x "$WORK_DIR/build-input/bazel-${TELEGRAM_BAZEL_VERSION}-darwin-arm64"
 rm -rf "$VENDOR_ROOT"
 mkdir -p "$VENDOR_ROOT/lib/iphoneos" "$VENDOR_ROOT/lib/iphonesimulator" "$VENDOR_ROOT/include/TgVoipWebrtc"
 
-copy_library() {
+platform_label_for_cpu() {
   local cpu="$1"
-  local output_dir="$2"
-  local library_path
-  local platform_label
 
   case "$cpu" in
     ios_arm64)
-      platform_label="@build_bazel_apple_support//platforms:ios_arm64"
+      echo "@build_bazel_apple_support//platforms:ios_arm64"
       ;;
     ios_sim_arm64)
-      platform_label="@build_bazel_apple_support//platforms:ios_sim_arm64"
+      echo "@build_bazel_apple_support//platforms:ios_sim_arm64"
       ;;
     *)
       echo "Unsupported TgVoipWebrtc target cpu=$cpu." >&2
       exit 1
       ;;
   esac
+}
+
+build_target_for_cpu() {
+  local cpu="$1"
+  local platform_label
+
+  platform_label="$(platform_label_for_cpu "$cpu")"
 
   (
     cd "$WORK_DIR"
@@ -111,20 +115,44 @@ copy_library() {
       --objccopt=-Wno-deprecated-declarations \
       //submodules/TgVoipWebrtc:TgVoipWebrtc
   )
-  library_path="$WORK_DIR/bazel-bin/submodules/TgVoipWebrtc/libTgVoipWebrtc.a"
-  if [[ ! -f "$library_path" ]]; then
-    library_path="$(find -L "$WORK_DIR/bazel-bin" -path '*submodules/TgVoipWebrtc*' -name 'libTgVoipWebrtc.a' -print -quit)"
-  fi
-  if [[ -z "$library_path" ]]; then
-    echo "Unable to locate libTgVoipWebrtc.a for cpu=$cpu." >&2
+}
+
+bundle_archives_for_cpu() {
+  local cpu="$1"
+  local output_dir="$2"
+  local platform_label
+  local archive_output="$output_dir/libTgVoipWebrtc.a"
+  local -a archives=()
+  local archive_path
+
+  platform_label="$(platform_label_for_cpu "$cpu")"
+
+  while IFS= read -r archive_path; do
+    [[ "$archive_path" == *.a ]] || continue
+    archives+=("$WORK_DIR/$archive_path")
+  done < <(
+    cd "$WORK_DIR"
+    USE_BAZEL_VERSION="$TELEGRAM_BAZEL_VERSION" "$BAZEL_BIN" cquery \
+      --cpu="$cpu" \
+      --platforms="$platform_label" \
+      "deps(//submodules/TgVoipWebrtc:TgVoipWebrtc)" \
+      --output=files | sort -u
+  )
+
+  if [[ ${#archives[@]} -eq 0 ]]; then
+    echo "Unable to locate transitive static archives for cpu=$cpu." >&2
     exit 1
   fi
 
-  cp "$library_path" "$output_dir/libTgVoipWebrtc.a"
+  rm -f "$archive_output"
+  /usr/bin/libtool -static -o "$archive_output" "${archives[@]}"
 }
 
-copy_library "ios_arm64" "$VENDOR_ROOT/lib/iphoneos"
-copy_library "ios_sim_arm64" "$VENDOR_ROOT/lib/iphonesimulator"
+build_target_for_cpu "ios_arm64"
+bundle_archives_for_cpu "ios_arm64" "$VENDOR_ROOT/lib/iphoneos"
+
+build_target_for_cpu "ios_sim_arm64"
+bundle_archives_for_cpu "ios_sim_arm64" "$VENDOR_ROOT/lib/iphonesimulator"
 
 cp "$WORK_DIR/submodules/TgVoipWebrtc/PublicHeaders/TgVoipWebrtc/"*.h "$VENDOR_ROOT/include/TgVoipWebrtc/"
 cat > "$VENDOR_ROOT/include/TgVoipWebrtc/TgVoipWebrtc.h" <<'EOF'

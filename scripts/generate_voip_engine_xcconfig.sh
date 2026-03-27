@@ -17,7 +17,9 @@ VOIP_ENGINE_ENABLED = YES
 HEADER_SEARCH_PATHS = $(inherited) "$(SRCROOT)/Vendor/TgVoip/include"
 LIBRARY_SEARCH_PATHS[sdk=iphoneos*] = $(inherited) "$(SRCROOT)/Vendor/TgVoip/lib/iphoneos"
 LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) "$(SRCROOT)/Vendor/TgVoip/lib/iphonesimulator"
-OTHER_LDFLAGS = $(inherited) -lTgVoipWebrtc -lc++ -lz -framework AudioToolbox -framework VideoToolbox -framework CoreTelephony -framework CoreMedia -framework GLKit -framework AVFoundation
+VOIP_COMMON_LDFLAGS = $(inherited) -ObjC -lc++ -lbz2 -liconv -lz -framework AudioToolbox -framework AVFoundation -framework CFNetwork -framework CoreAudio -framework CoreGraphics -framework CoreMedia -framework CoreTelephony -framework CoreVideo -framework GLKit -framework QuartzCore -framework Security -framework SystemConfiguration -framework VideoToolbox -weak_framework Metal -weak_framework Network
+OTHER_LDFLAGS[sdk=iphoneos*] = $(VOIP_COMMON_LDFLAGS) -force_load "$(SRCROOT)/Vendor/TgVoip/lib/iphoneos/libTgVoipWebrtc.a"
+OTHER_LDFLAGS[sdk=iphonesimulator*] = $(VOIP_COMMON_LDFLAGS) -force_load "$(SRCROOT)/Vendor/TgVoip/lib/iphonesimulator/libTgVoipWebrtc.a"
 EOF
 else
   cat > "$OUTPUT_PATH" <<'EOF'
