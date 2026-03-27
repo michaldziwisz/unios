@@ -148,14 +148,15 @@ enum TelegramCallMediaConfigurationBuilder {
             return nil
         }
 
-        let reflectorIDs = readyState.servers.compactMap { server -> Int64? in
+        let reflectorIDs = readyState.servers.compactMap { server -> TdInt64? in
             if case .callServerTypeTelegramReflector = server.type {
                 return server.id
             }
             return nil
-        }.sorted()
+        }
+        .sorted()
 
-        let reflectorMapping = Dictionary(
+        let reflectorMapping: [TdInt64: UInt8] = Dictionary(
             uniqueKeysWithValues: reflectorIDs.enumerated().map { offset, id in
                 (id, UInt8((offset + 1) & 0xff))
             }

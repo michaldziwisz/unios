@@ -1,13 +1,22 @@
 import CryptoKit
 import Foundation
+import TDLibKit
 
 enum StableIdentifier {
     static func chatUUID(for telegramChatID: Int64) -> UUID {
         uuid(seed: "telegram-chat-\(telegramChatID)")
     }
 
+    static func chatUUID(for telegramChatID: TdInt64) -> UUID {
+        chatUUID(for: telegramChatID.rawValue)
+    }
+
     static func messageUUID(chatID: Int64, messageID: Int64) -> UUID {
         uuid(seed: "telegram-chat-\(chatID)-message-\(messageID)")
+    }
+
+    static func messageUUID(chatID: TdInt64, messageID: TdInt64) -> UUID {
+        messageUUID(chatID: chatID.rawValue, messageID: messageID.rawValue)
     }
 
     private static func uuid(seed: String) -> UUID {

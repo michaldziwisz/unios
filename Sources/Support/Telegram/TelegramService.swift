@@ -161,6 +161,10 @@ final class TelegramService {
         manager.closeClients()
     }
 
+    private func td(_ value: Int64) -> TdInt64 {
+        TdInt64(value)
+    }
+
     func start() async throws -> TelegramSignInState {
         let state = try await client.getAuthorizationState()
         return try await applyAuthorizationState(state)
@@ -205,7 +209,7 @@ final class TelegramService {
     func loadCurrentProfile() async throws -> TelegramAccountProfile {
         let me = try await client.getMe()
         return TelegramAccountProfile(
-            userID: me.id,
+            userID: me.id.rawValue,
             displayName: Self.displayName(for: me),
             username: me.usernames?.activeUsernames.first,
             phoneNumber: me.phoneNumber
@@ -218,7 +222,7 @@ final class TelegramService {
         mappedChats.reserveCapacity(response.chatIds.count)
 
         for chatID in response.chatIds {
-            let chat = try await loadChat(chatID: chatID, currentUserDisplayName: currentUserDisplayName)
+            let chat = try await loadChat(chatID: chatID.rawValue, currentUserDisplayName: currentUserDisplayName)
             mappedChats.append(chat)
         }
 
@@ -226,15 +230,15 @@ final class TelegramService {
     }
 
     func loadChat(chatID: Int64, currentUserDisplayName: String) async throws -> Chat {
-        let tdChat = try await client.getChat(chatId: chatID)
+        let tdChat = try await client.getChat(chatId: td(chatID))
         return try await mapChat(tdChat, currentUserDisplayName: currentUserDisplayName)
     }
 
     func loadMessages(chatID: Int64, currentUserDisplayName: String, limit: Int = 40) async throws -> [Message] {
-        let tdChat = try await client.getChat(chatId: chatID)
-        _ = try await client.openChat(chatId: chatID)
+        let tdChat = try await client.getChat(chatId: td(chatID))
+        _ = try await client.openChat(chatId: td(chatID))
         let history = try await client.getChatHistory(
-            chatId: chatID,
+            chatId: td(chatID),
             fromMessageId: 0,
             limit: limit,
             offset: 0,
@@ -245,7 +249,7 @@ final class TelegramService {
         if !historyMessages.isEmpty {
             let ids = historyMessages.map(\.id)
             try? await client.viewMessages(
-                chatId: chatID,
+                chatId: td(chatID),
                 forceRead: true,
                 messageIds: ids,
                 source: nil
@@ -277,7 +281,7 @@ final class TelegramService {
         )
 
         _ = try await client.sendMessage(
-            chatId: chatID,
+            chatId: td(chatID),
             inputMessageContent: content,
             options: nil,
             replyMarkup: nil,
@@ -308,7 +312,7 @@ final class TelegramService {
         )
 
         _ = try await client.sendMessage(
-            chatId: chatID,
+            chatId: td(chatID),
             inputMessageContent: content,
             options: nil,
             replyMarkup: nil,
@@ -333,7 +337,7 @@ final class TelegramService {
         )
 
         _ = try await client.sendMessage(
-            chatId: chatID,
+            chatId: td(chatID),
             inputMessageContent: content,
             options: nil,
             replyMarkup: nil,
@@ -362,7 +366,7 @@ final class TelegramService {
         )
 
         _ = try await client.sendMessage(
-            chatId: chatID,
+            chatId: td(chatID),
             inputMessageContent: content,
             options: nil,
             replyMarkup: nil,
@@ -398,7 +402,7 @@ final class TelegramService {
         )
 
         _ = try await client.sendMessage(
-            chatId: chatID,
+            chatId: td(chatID),
             inputMessageContent: content,
             options: nil,
             replyMarkup: nil,
@@ -425,7 +429,7 @@ final class TelegramService {
         )
 
         _ = try await client.sendMessage(
-            chatId: chatID,
+            chatId: td(chatID),
             inputMessageContent: content,
             options: nil,
             replyMarkup: nil,
@@ -478,7 +482,7 @@ final class TelegramService {
         let callID = try await client.createCall(
             isVideo: isVideo,
             protocol: supportedCallProtocol(),
-            userId: userID
+            userId: td(userID)
         )
         return callID.id
     }
@@ -547,9 +551,9 @@ final class TelegramService {
         }
 
         try? await client.viewMessages(
-            chatId: chatID,
+            chatId: td(chatID),
             forceRead: true,
-            messageIds: messageIDs,
+            messageIds: messageIDs.map(td),
             source: nil
         )
     }
@@ -573,7 +577,7 @@ final class TelegramService {
     }
 
     func createPrivateChat(for userID: Int64, currentUserDisplayName: String) async throws -> Chat {
-        let chat = try await client.createPrivateChat(force: false, userId: userID)
+        let chat = try await client.createPrivateChat(force: false, userId: td(userID))
         return try await mapChat(chat, currentUserDisplayName: currentUserDisplayName)
     }
 
@@ -600,22 +604,22 @@ final class TelegramService {
             notify(.chatsChanged)
 
         case let .updateChatTitle(value):
-            notify(.chatChanged(chatID: value.chatId))
+            notify(.chatChanged(chatID: value.chatId.rawValue))
 
         case let .updateChatLastMessage(value):
-            notify(.chatChanged(chatID: value.chatId))
+            notify(.chatChanged(chatID: value.chatId.rawValue))
 
         case let .updateChatPosition(value):
-            notify(.chatChanged(chatID: value.chatId))
+            notify(.chatChanged(chatID: value.chatId.rawValue))
 
         case let .updateChatReadInbox(value):
-            notify(.chatChanged(chatID: value.chatId))
+            notify(.chatChanged(chatID: value.chatId.rawValue))
 
         case let .updateChatIsMarkedAsUnread(value):
-            notify(.chatChanged(chatID: value.chatId))
+            notify(.chatChanged(chatID: value.chatId.rawValue))
 
         case let .updateNewMessage(value):
-            notify(.chatChanged(chatID: value.message.chatId))
+            notify(.chatChanged(chatID: value.message.chatId.rawValue))
 
         case let .updateCall(value):
             Task { [weak self] in
@@ -632,7 +636,7 @@ final class TelegramService {
                     let fallbackSession = ActiveCallSession(
                         id: value.call.id,
                         peerName: "Telegram call",
-                        peerUserID: value.call.userId,
+                        peerUserID: value.call.userId.rawValue,
                         isOutgoing: value.call.isOutgoing,
                         isVideo: value.call.isVideo,
                         phase: .failed(message: self.userFacingMessage(for: error)),
@@ -841,7 +845,7 @@ final class TelegramService {
         case let .chatTypePrivate(value):
             let user = try await client.getUser(userId: value.userId)
             personName = Self.displayName(for: user)
-            telegramUserID = value.userId
+            telegramUserID = value.userId.rawValue
         default:
             personName = chat.title
             telegramUserID = nil
@@ -936,7 +940,7 @@ final class TelegramService {
         return ActiveCallSession(
             id: call.id,
             peerName: peerName,
-            peerUserID: call.userId,
+            peerUserID: call.userId.rawValue,
             isOutgoing: call.isOutgoing,
             isVideo: call.isVideo,
             phase: phase,
@@ -1037,7 +1041,7 @@ final class TelegramService {
         notify(.callUpdated(session))
     }
 
-    private func peerDisplayName(for userID: Int64) async throws -> String {
+    private func peerDisplayName(for userID: TdInt64) async throws -> String {
         let user = try await client.getUser(userId: userID)
         return Self.displayName(for: user)
     }
@@ -1265,6 +1269,7 @@ final class TelegramService {
             messages: previewMessage.map { [$0] } ?? [],
             avatarHue: avatarHue(for: tdChat.accentColorId),
             telegramChatID: tdChat.id
+                .rawValue
         )
     }
 
@@ -1285,6 +1290,7 @@ final class TelegramService {
             attachment: mappedContent.attachment,
             isPinned: tdMessage.isPinned,
             telegramMessageID: tdMessage.id
+                .rawValue
         )
     }
 
@@ -1507,6 +1513,7 @@ final class TelegramService {
             avatarHue: avatarHue(for: user.accentColorId),
             note: note,
             telegramUserID: user.id
+                .rawValue
         )
     }
 
