@@ -22,7 +22,7 @@ final class UniOSAppModel: ObservableObject {
     @Published var accessibilityPreferences: AccessibilityPreferences
     @Published private(set) var activeCallSession: ActiveCallSession?
     @Published private(set) var latestAnnouncement = ""
-    @Published private(set) var sessionSource: SessionSource = .demo
+    @Published private(set) var sessionSource: SessionSource = .telegram
     @Published private(set) var telegramSignInState: TelegramSignInState
     @Published private(set) var telegramProfile: TelegramAccountProfile?
     @Published private(set) var isSyncingTelegramData = false
@@ -41,6 +41,7 @@ final class UniOSAppModel: ObservableObject {
         if let configuration = TelegramAppConfiguration.load() {
             let service = TelegramService(configuration: configuration)
             self.telegramService = service
+            self.sessionSource = .telegram
             self.telegramSignInState = .working(message: "Checking the Telegram session.")
             service.delegate = self
 
@@ -49,8 +50,9 @@ final class UniOSAppModel: ObservableObject {
             }
         } else {
             self.telegramService = nil
+            self.sessionSource = .demo
             self.telegramSignInState = .unavailable(
-                message: "Telegram credentials are not configured in this build. Run scripts/generate_telegram_secrets.sh or continue with the demo workspace."
+                message: "Telegram credentials are not configured in this build. Run scripts/generate_telegram_secrets.sh to enable sign in."
             )
         }
     }
@@ -1106,8 +1108,8 @@ final class UniOSAppModel: ObservableObject {
     private func handleTelegramFailure(_ error: any Swift.Error, fallbackState: TelegramSignInState) async {
         let message = userFacingMessage(for: error)
         telegramSignInState = .failed(message: message)
-        if !isAuthenticated {
-            sessionSource = .demo
+        if !isAuthenticated, telegramService != nil {
+            sessionSource = .telegram
         }
         announce(message)
         if case .waitingForPhone = fallbackState {
@@ -1122,7 +1124,6 @@ final class UniOSAppModel: ObservableObject {
         overviewRefreshTask?.cancel()
         overviewRefreshTask = nil
         isAuthenticated = false
-        sessionSource = .demo
         telegramProfile = nil
         activeCallSession = nil
         selectedTab = .chats
@@ -1133,16 +1134,21 @@ final class UniOSAppModel: ObservableObject {
         signInEmailCode = ""
         signInVerificationCode = ""
         signInPassword = ""
-        chats = seed.chats
-        contacts = seed.contacts
-        calls = seed.calls
         accessibilityPreferences = seed.accessibilityPreferences
 
         if telegramService != nil {
+            sessionSource = .telegram
+            chats = []
+            contacts = []
+            calls = []
             telegramSignInState = .waitingForPhone
         } else {
+            sessionSource = .demo
+            chats = seed.chats
+            contacts = seed.contacts
+            calls = seed.calls
             telegramSignInState = .unavailable(
-                message: "Telegram credentials are not configured in this build. Run scripts/generate_telegram_secrets.sh or continue with the demo workspace."
+                message: "Telegram credentials are not configured in this build. Run scripts/generate_telegram_secrets.sh to enable sign in."
             )
         }
     }

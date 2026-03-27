@@ -14,7 +14,6 @@ struct SignInView: View {
         case emailCode
         case code
         case password
-        case demoName
     }
 
     @EnvironmentObject private var appModel: UniOSAppModel
@@ -26,7 +25,6 @@ struct SignInView: View {
             VStack(alignment: .leading, spacing: 24) {
                 heroSection
                 telegramSection
-                demoSection
                 featureSection
             }
             .padding(20)
@@ -35,7 +33,7 @@ struct SignInView: View {
         .background(UniOSTheme.canvas.ignoresSafeArea())
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                focusedField = appModel.canUseTelegram ? .phone : .demoName
+                focusedField = appModel.canUseTelegram ? .phone : nil
             }
         }
         .onChange(of: appModel.telegramSignInState) { _, state in
@@ -77,9 +75,9 @@ struct SignInView: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("UniOS. A native iPhone reading of Unigram, designed for screen reader confidence first.")
 
-            Text("Accessible Sign In")
+            Text("Sign In To Telegram")
                 .font(.title2.weight(.bold))
-            Text("This build keeps the demo workspace, and can also use TDLibKit for real Telegram authentication when local API credentials are configured.")
+            Text("Use your real Telegram account directly in UniOS. The sign-in flow stays native, accessible, and VoiceOver-first.")
                 .foregroundStyle(UniOSTheme.quietText)
         }
     }
@@ -89,7 +87,7 @@ struct SignInView: View {
             Text("Telegram")
                 .font(.title3.weight(.bold))
 
-            Text(appModel.canUseTelegram ? "Real Telegram sign in is enabled in this build through TDLibKit." : "Telegram sign in becomes available after generating `Config/TelegramSecrets.xcconfig` from your local Postmaster credentials.")
+            Text(appModel.canUseTelegram ? "Real Telegram sign in is enabled in this build through TDLibKit." : "Telegram sign in is unavailable until `Config/TelegramSecrets.xcconfig` is generated from your local Postmaster credentials.")
                 .foregroundStyle(UniOSTheme.quietText)
 
             statusCard
@@ -225,46 +223,6 @@ struct SignInView: View {
         .uniosCard()
     }
 
-    private var demoSection: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Demo Workspace")
-                .font(.title3.weight(.bold))
-
-            Text("The demo path keeps sample conversations so focus order, spoken labels, and VoiceOver behavior can be validated even without Telegram credentials.")
-                .foregroundStyle(UniOSTheme.quietText)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Display Name")
-                    .font(.headline)
-                TextField("VoiceOver Pilot", text: $appModel.signInName)
-                    .textContentType(.name)
-                    .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color(uiColor: .systemBackground))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(UniOSTheme.tint.opacity(0.18), lineWidth: 1)
-                    )
-                    .focused($focusedField, equals: .demoName)
-                    .accessibilityHint("Enter the name used in outgoing demo messages.")
-            }
-
-            Button {
-                appModel.signInDemo()
-            } label: {
-                Label("Continue To Demo Workspace", systemImage: "arrow.right.circle.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .accessibilityHint("Loads the sample account and opens the accessible chat interface.")
-        }
-        .uniosCard()
-    }
-
     private var featureSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("What Is Already Optimized")
@@ -277,7 +235,7 @@ struct SignInView: View {
 
             FeatureCard(
                 title: "TDLibKit Bridge",
-                description: "When credentials are present, Telegram auth, chat list sync, message history, and text sending use TDLibKit."
+                description: "Telegram auth, chat sync, message history, media, and calling are routed through TDLibKit."
             )
 
             FeatureCard(

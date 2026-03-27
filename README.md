@@ -12,7 +12,7 @@ This repository does not attempt a full 1:1 port of Unigram. It reinterprets the
 - Settings
 - Accessibility center for VoiceOver users
 
-The current build keeps a demo workspace and also includes a real Telegram bridge through [Swiftgram/TDLibKit](https://github.com/Swiftgram/TDLibKit) when Telegram API credentials are available locally or through CI secrets.
+The current build signs into real Telegram through [Swiftgram/TDLibKit](https://github.com/Swiftgram/TDLibKit) when Telegram API credentials are available locally or through CI secrets. Demo seed data remains in the repository only as an internal fallback for development and tests.
 
 ## Priorities
 
@@ -26,7 +26,7 @@ The current build keeps a demo workspace and also includes a real Telegram bridg
 ## Local Development
 
 1. Install Xcode and XcodeGen.
-2. Optional but recommended for real Telegram sign in: generate the local `xcconfig` from your Postmaster credentials:
+2. Generate the local `xcconfig` from your Postmaster credentials:
 
 ```bash
 ./scripts/generate_telegram_secrets.sh
@@ -49,7 +49,7 @@ xcodegen generate
 open UniOS.xcodeproj
 ```
 
-If the Telegram credentials are not present, UniOS still builds and runs in demo mode. If the VoIP engine is not built, UniOS falls back to lifecycle-only Telegram call controls.
+If the Telegram credentials are not present, UniOS still builds but the app will stay on the unavailable Telegram sign-in screen until `Config/TelegramSecrets.xcconfig` is provided. If the VoIP engine is not built, UniOS falls back to lifecycle-only Telegram call controls.
 
 ## Telegram Integration
 
