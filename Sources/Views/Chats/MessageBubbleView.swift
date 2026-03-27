@@ -4,6 +4,11 @@ struct MessageBubbleView: View {
     let message: Message
     let speakContext: Bool
     let compactMediaDescriptions: Bool
+    let isAttachmentLoading: Bool
+    let isAttachmentActive: Bool
+    let attachmentActionLabel: String?
+    let attachmentActionHint: String?
+    let attachmentAction: (() -> Void)?
 
     var body: some View {
         HStack {
@@ -45,7 +50,12 @@ struct MessageBubbleView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(message.voiceOverLabel(speakContext: speakContext))
             .accessibilityValue(message.direction == .outgoing ? message.status.accessibilityText : "Received")
-            .accessibilityHint("Message from \(message.timestampLabel).")
+            .accessibilityHint(accessibilityHint)
+            .modifier(
+                AttachmentActivationModifier(
+                    attachmentAction: attachmentAction
+                )
+            )
 
             if message.direction == .incoming {
                 Spacer(minLength: 48)
@@ -61,13 +71,11 @@ struct MessageBubbleView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
         case let .voice(transcript, durationSeconds):
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Voice note · \(durationSeconds)s", systemImage: "waveform")
-                    .font(.subheadline.weight(.semibold))
-                if !compactMediaDescriptions {
-                    Text(transcript)
-                }
-            }
+            attachmentCard(
+                title: "Voice note · \(durationSeconds)s",
+                systemImage: "waveform",
+                primaryText: compactMediaDescriptions ? nil : transcript
+            )
 
         case let .photo(description):
             attachmentCard(
@@ -121,6 +129,62 @@ struct MessageBubbleView: View {
                     .foregroundStyle(UniOSTheme.quietText)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            if isAttachmentLoading {
+                ProgressView()
+                    .accessibilityLabel("Attachment is loading")
+            } else if let attachmentActionLabel, let attachmentAction {
+                Button(action: attachmentAction) {
+                    Label(attachmentActionLabel, systemImage: actionSystemImage)
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint(attachmentActionHint ?? "Opens the attachment.")
+            }
+        }
+    }
+
+    private var actionSystemImage: String {
+        if isAttachmentActive {
+            return "pause.fill"
+        }
+
+        switch message.attachment?.kind {
+        case .audio, .voiceNote:
+            return "play.fill"
+        case .document:
+            return "arrow.down.doc.fill"
+        case .photo:
+            return "arrow.down.circle.fill"
+        case .video, .videoNote:
+            return "play.rectangle.fill"
+        case .none:
+            return "paperclip"
+        }
+    }
+
+    private var accessibilityHint: String {
+        let baseHint = "Message from \(message.timestampLabel)."
+        guard let attachmentActionHint, attachmentAction != nil else {
+            return baseHint
+        }
+        return "\(baseHint) \(attachmentActionHint)"
+    }
+}
+
+private struct AttachmentActivationModifier: ViewModifier {
+    let attachmentAction: (() -> Void)?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let attachmentAction {
+            content
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction {
+                    attachmentAction()
+                }
+        } else {
+            content
         }
     }
 }

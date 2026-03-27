@@ -362,7 +362,16 @@ final class UniOSAppModel: ObservableObject {
             return
         }
 
-        appendOutgoingMessage(text: description, kind: .photo(description: description), to: chatID)
+        appendOutgoingMessage(
+            text: description,
+            kind: .photo(description: description),
+            attachment: MessageAttachment(
+                kind: .photo,
+                mimeType: "image/jpeg",
+                localPath: localFileURL.path
+            ),
+            to: chatID
+        )
         announce("Photo sent to \(chat.title).")
     }
 
@@ -405,9 +414,210 @@ final class UniOSAppModel: ObservableObject {
                 description: description,
                 fileName: fileName.isEmpty ? nil : fileName
             ),
+            attachment: MessageAttachment(
+                kind: .document,
+                fileName: fileName.isEmpty ? nil : fileName,
+                localPath: localFileURL.path
+            ),
             to: chatID
         )
         announce("Document sent to \(chat.title).")
+    }
+
+    func sendAudio(
+        at localFileURL: URL,
+        caption rawCaption: String,
+        duration: Int,
+        title rawTitle: String,
+        performer rawPerformer: String,
+        to chatID: UUID
+    ) {
+        guard let chat = chat(for: chatID) else {
+            announce("Conversation is unavailable.")
+            return
+        }
+
+        let caption = rawCaption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let performer = rawPerformer.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fileName = localFileURL.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = [title, performer].filter { !$0.isEmpty }.joined(separator: " by ")
+        let description = caption.isEmpty ? (fallback.isEmpty ? (fileName.isEmpty ? "Audio attachment" : fileName) : fallback) : caption
+
+        if sessionSource == .telegram, let remoteChatID = chat.telegramChatID, let telegramService {
+            announce("Sending audio to \(chat.title).")
+
+            Task { [weak self] in
+                do {
+                    try await telegramService.sendAudio(
+                        from: localFileURL,
+                        caption: caption,
+                        duration: duration,
+                        performer: performer,
+                        title: title,
+                        to: remoteChatID
+                    )
+                    await self?.refreshTelegramChat(
+                        remoteChatID: remoteChatID,
+                        successAnnouncement: "Audio sent to \(chat.title)."
+                    )
+                    await self?.scheduleTelegramOverviewRefresh(delayNanoseconds: 150_000_000)
+                } catch {
+                    await self?.handleTelegramFailure(error, fallbackState: .waitingForPhone)
+                }
+            }
+            return
+        }
+
+        appendOutgoingMessage(
+            text: description,
+            kind: .audio(description: description, durationSeconds: duration),
+            attachment: MessageAttachment(
+                kind: .audio,
+                fileName: fileName.isEmpty ? nil : fileName,
+                durationSeconds: duration,
+                localPath: localFileURL.path
+            ),
+            to: chatID
+        )
+        announce("Audio sent to \(chat.title).")
+    }
+
+    func sendVideo(at localFileURL: URL, size: CGSize?, duration: Int, caption rawCaption: String, to chatID: UUID) {
+        guard let chat = chat(for: chatID) else {
+            announce("Conversation is unavailable.")
+            return
+        }
+
+        let caption = rawCaption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fileName = localFileURL.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = caption.isEmpty ? (fileName.isEmpty ? "Video attachment" : fileName) : caption
+
+        if sessionSource == .telegram, let remoteChatID = chat.telegramChatID, let telegramService {
+            announce("Sending video to \(chat.title).")
+
+            Task { [weak self] in
+                do {
+                    try await telegramService.sendVideo(
+                        from: localFileURL,
+                        caption: caption,
+                        size: size,
+                        duration: duration,
+                        to: remoteChatID
+                    )
+                    await self?.refreshTelegramChat(
+                        remoteChatID: remoteChatID,
+                        successAnnouncement: "Video sent to \(chat.title)."
+                    )
+                    await self?.scheduleTelegramOverviewRefresh(delayNanoseconds: 150_000_000)
+                } catch {
+                    await self?.handleTelegramFailure(error, fallbackState: .waitingForPhone)
+                }
+            }
+            return
+        }
+
+        appendOutgoingMessage(
+            text: description,
+            kind: .video(description: description, durationSeconds: duration),
+            attachment: MessageAttachment(
+                kind: .video,
+                fileName: fileName.isEmpty ? nil : fileName,
+                durationSeconds: duration,
+                localPath: localFileURL.path,
+                width: size.map { Int($0.width.rounded()) },
+                height: size.map { Int($0.height.rounded()) }
+            ),
+            to: chatID
+        )
+        announce("Video sent to \(chat.title).")
+    }
+
+    func sendVoiceNote(at localFileURL: URL, duration: Int, waveform: Data, caption rawCaption: String, to chatID: UUID) {
+        guard let chat = chat(for: chatID) else {
+            announce("Conversation is unavailable.")
+            return
+        }
+
+        let caption = rawCaption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = caption.isEmpty ? "Voice note" : caption
+
+        if sessionSource == .telegram, let remoteChatID = chat.telegramChatID, let telegramService {
+            announce("Sending voice note to \(chat.title).")
+
+            Task { [weak self] in
+                do {
+                    try await telegramService.sendVoiceNote(
+                        from: localFileURL,
+                        caption: caption,
+                        duration: duration,
+                        waveform: waveform,
+                        to: remoteChatID
+                    )
+                    await self?.refreshTelegramChat(
+                        remoteChatID: remoteChatID,
+                        successAnnouncement: "Voice note sent to \(chat.title)."
+                    )
+                    await self?.scheduleTelegramOverviewRefresh(delayNanoseconds: 150_000_000)
+                } catch {
+                    await self?.handleTelegramFailure(error, fallbackState: .waitingForPhone)
+                }
+            }
+            return
+        }
+
+        appendOutgoingMessage(
+            text: description,
+            kind: .voice(transcript: description, durationSeconds: duration),
+            attachment: MessageAttachment(
+                kind: .voiceNote,
+                durationSeconds: duration,
+                localPath: localFileURL.path
+            ),
+            to: chatID
+        )
+        announce("Voice note sent to \(chat.title).")
+    }
+
+    func loadAttachment(for messageID: UUID, in chatID: UUID) async throws -> URL {
+        guard let message = chat(for: chatID)?.messages.first(where: { $0.id == messageID }) else {
+            throw NSError(
+                domain: "UniOS.AppModel",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "The selected message is unavailable."]
+            )
+        }
+
+        guard let attachment = message.attachment else {
+            throw NSError(
+                domain: "UniOS.AppModel",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "This message has no attachment to open."]
+            )
+        }
+
+        if
+            let localURL = attachment.localURL,
+            FileManager.default.fileExists(atPath: localURL.path)
+        {
+            return localURL
+        }
+
+        guard
+            sessionSource == .telegram,
+            let telegramService,
+            let telegramFileID = attachment.telegramFileID
+        else {
+            throw NSError(
+                domain: "UniOS.AppModel",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "The attachment is not available on this device."]
+            )
+        }
+
+        let downloadedURL = try await telegramService.downloadFile(fileID: telegramFileID)
+        updateAttachmentLocalPath(downloadedURL.path, for: messageID, in: chatID)
+        return downloadedURL
     }
 
     func jumpToFirstUnreadChat() -> Chat? {
@@ -746,7 +956,7 @@ final class UniOSAppModel: ObservableObject {
         chats[index] = chat
     }
 
-    private func appendOutgoingMessage(text: String, kind: MessageKind, to chatID: UUID) {
+    private func appendOutgoingMessage(text: String, kind: MessageKind, attachment: MessageAttachment? = nil, to chatID: UUID) {
         mutateChat(chatID) { chat in
             let message = Message(
                 id: UUID(),
@@ -755,12 +965,30 @@ final class UniOSAppModel: ObservableObject {
                 timestamp: Date(),
                 direction: .outgoing,
                 status: .sent,
-                kind: kind
+                kind: kind,
+                attachment: attachment
             )
             chat.messages.append(message)
             chat.summary = text
             chat.lastUpdated = message.timestamp
             chat.unreadCount = 0
+        }
+    }
+
+    private func updateAttachmentLocalPath(_ path: String, for messageID: UUID, in chatID: UUID) {
+        mutateChat(chatID) { chat in
+            guard let messageIndex = chat.messages.firstIndex(where: { $0.id == messageID }) else {
+                return
+            }
+
+            var message = chat.messages[messageIndex]
+            guard var attachment = message.attachment else {
+                return
+            }
+
+            attachment.localPath = path
+            message.attachment = attachment
+            chat.messages[messageIndex] = message
         }
     }
 

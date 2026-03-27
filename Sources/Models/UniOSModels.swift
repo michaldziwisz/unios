@@ -130,6 +130,89 @@ enum MessageKind: Hashable {
     }
 }
 
+enum MessageAttachmentKind: String, Hashable {
+    case photo
+    case document
+    case audio
+    case video
+    case voiceNote
+    case videoNote
+
+    var systemImage: String {
+        switch self {
+        case .photo:
+            return "photo.fill"
+        case .document:
+            return "doc.fill"
+        case .audio:
+            return "music.note"
+        case .video:
+            return "video.fill"
+        case .voiceNote:
+            return "waveform"
+        case .videoNote:
+            return "video.bubble.left.fill"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .photo:
+            return "Photo attachment"
+        case .document:
+            return "Document attachment"
+        case .audio:
+            return "Audio attachment"
+        case .video:
+            return "Video attachment"
+        case .voiceNote:
+            return "Voice note"
+        case .videoNote:
+            return "Video note"
+        }
+    }
+
+    var supportsInlinePlayback: Bool {
+        switch self {
+        case .audio, .voiceNote:
+            return true
+        case .photo, .document, .video, .videoNote:
+            return false
+        }
+    }
+}
+
+struct MessageAttachment: Hashable {
+    var kind: MessageAttachmentKind
+    var fileName: String? = nil
+    var mimeType: String? = nil
+    var durationSeconds: Int? = nil
+    var telegramFileID: Int? = nil
+    var localPath: String? = nil
+    var width: Int? = nil
+    var height: Int? = nil
+
+    var localURL: URL? {
+        guard let localPath else {
+            return nil
+        }
+
+        let trimmedPath = localPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else {
+            return nil
+        }
+
+        return URL(fileURLWithPath: trimmedPath)
+    }
+
+    var isAvailableLocally: Bool {
+        guard let localURL else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: localURL.path)
+    }
+}
+
 struct Message: Identifiable, Hashable {
     let id: UUID
     var sender: String
@@ -138,6 +221,7 @@ struct Message: Identifiable, Hashable {
     var direction: MessageDirection
     var status: MessageDeliveryStatus
     var kind: MessageKind
+    var attachment: MessageAttachment? = nil
     var isPinned: Bool = false
     var telegramMessageID: Int64? = nil
 

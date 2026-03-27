@@ -338,6 +338,119 @@ final class TelegramService {
         )
     }
 
+    func sendAudio(
+        from localFileURL: URL,
+        caption: String,
+        duration: Int,
+        performer: String,
+        title: String,
+        to chatID: Int64
+    ) async throws {
+        let content = InputMessageContent.inputMessageAudio(
+            InputMessageAudio(
+                albumCoverThumbnail: nil,
+                audio: .inputFileLocal(InputFileLocal(path: localFileURL.path)),
+                caption: formattedCaption(caption),
+                duration: max(duration, 0),
+                performer: performer,
+                title: title
+            )
+        )
+
+        _ = try await client.sendMessage(
+            chatId: chatID,
+            inputMessageContent: content,
+            options: nil,
+            replyMarkup: nil,
+            replyTo: nil,
+            topicId: nil
+        )
+    }
+
+    func sendVideo(
+        from localFileURL: URL,
+        caption: String,
+        size: CGSize?,
+        duration: Int,
+        to chatID: Int64
+    ) async throws {
+        let dimensions = mediaDimensions(from: size)
+        let content = InputMessageContent.inputMessageVideo(
+            InputMessageVideo(
+                addedStickerFileIds: [],
+                caption: formattedCaption(caption),
+                cover: nil,
+                duration: max(duration, 0),
+                hasSpoiler: false,
+                height: dimensions.height,
+                selfDestructType: nil,
+                showCaptionAboveMedia: false,
+                startTimestamp: 0,
+                supportsStreaming: true,
+                thumbnail: nil,
+                video: .inputFileLocal(InputFileLocal(path: localFileURL.path)),
+                width: dimensions.width
+            )
+        )
+
+        _ = try await client.sendMessage(
+            chatId: chatID,
+            inputMessageContent: content,
+            options: nil,
+            replyMarkup: nil,
+            replyTo: nil,
+            topicId: nil
+        )
+    }
+
+    func sendVoiceNote(
+        from localFileURL: URL,
+        caption: String,
+        duration: Int,
+        waveform: Data,
+        to chatID: Int64
+    ) async throws {
+        let content = InputMessageContent.inputMessageVoiceNote(
+            InputMessageVoiceNote(
+                caption: formattedCaption(caption),
+                duration: max(duration, 0),
+                selfDestructType: nil,
+                voiceNote: .inputFileLocal(InputFileLocal(path: localFileURL.path)),
+                waveform: waveform
+            )
+        )
+
+        _ = try await client.sendMessage(
+            chatId: chatID,
+            inputMessageContent: content,
+            options: nil,
+            replyMarkup: nil,
+            replyTo: nil,
+            topicId: nil
+        )
+    }
+
+    func downloadFile(fileID: Int) async throws -> URL {
+        let file = try await client.downloadFile(
+            fileId: fileID,
+            limit: 0,
+            offset: 0,
+            priority: 32,
+            synchronous: true
+        )
+
+        let localPath = file.local.path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !localPath.isEmpty else {
+            throw NSError(
+                domain: "UniOS.TelegramService",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "The Telegram file finished downloading without a readable local path."]
+            )
+        }
+
+        return URL(fileURLWithPath: localPath)
+    }
+
     func loadCallLogs(limit: Int, onlyMissed: Bool) async throws -> [CallLog] {
         let response = try await client.searchCallMessages(
             limit: min(limit, 100),
@@ -695,6 +808,82 @@ final class TelegramService {
         return nonEmptyText(fileName) ?? "Audio attachment"
     }
 
+    private func photoAttachment(from photo: Photo) -> MessageAttachment? {
+        guard let bestPhoto = photo.sizes.max(by: { ($0.width * $0.height) < ($1.width * $1.height) }) else {
+            return nil
+        }
+
+        return MessageAttachment(
+            kind: .photo,
+            mimeType: "image/jpeg",
+            telegramFileID: bestPhoto.photo.id,
+            localPath: resolvedLocalPath(for: bestPhoto.photo),
+            width: bestPhoto.width,
+            height: bestPhoto.height
+        )
+    }
+
+    private func documentAttachment(from document: Document) -> MessageAttachment {
+        MessageAttachment(
+            kind: .document,
+            fileName: nonEmptyText(document.fileName),
+            mimeType: nonEmptyText(document.mimeType),
+            telegramFileID: document.document.id,
+            localPath: resolvedLocalPath(for: document.document)
+        )
+    }
+
+    private func audioAttachment(from audio: Audio) -> MessageAttachment {
+        MessageAttachment(
+            kind: .audio,
+            fileName: nonEmptyText(audio.fileName),
+            mimeType: nonEmptyText(audio.mimeType),
+            durationSeconds: audio.duration,
+            telegramFileID: audio.audio.id,
+            localPath: resolvedLocalPath(for: audio.audio)
+        )
+    }
+
+    private func videoAttachment(from video: Video) -> MessageAttachment {
+        MessageAttachment(
+            kind: .video,
+            fileName: nonEmptyText(video.fileName),
+            mimeType: nonEmptyText(video.mimeType),
+            durationSeconds: video.duration,
+            telegramFileID: video.video.id,
+            localPath: resolvedLocalPath(for: video.video),
+            width: video.width,
+            height: video.height
+        )
+    }
+
+    private func videoNoteAttachment(from videoNote: VideoNote) -> MessageAttachment {
+        MessageAttachment(
+            kind: .videoNote,
+            mimeType: "video/mp4",
+            durationSeconds: videoNote.duration,
+            telegramFileID: videoNote.video.id,
+            localPath: resolvedLocalPath(for: videoNote.video),
+            width: videoNote.length,
+            height: videoNote.length
+        )
+    }
+
+    private func voiceNoteAttachment(from voiceNote: VoiceNote) -> MessageAttachment {
+        MessageAttachment(
+            kind: .voiceNote,
+            mimeType: nonEmptyText(voiceNote.mimeType),
+            durationSeconds: voiceNote.duration,
+            telegramFileID: voiceNote.voice.id,
+            localPath: resolvedLocalPath(for: voiceNote.voice)
+        )
+    }
+
+    private func resolvedLocalPath(for file: TDLibKit.File) -> String? {
+        let localPath = file.local.path.trimmingCharacters(in: .whitespacesAndNewlines)
+        return localPath.isEmpty ? nil : localPath
+    }
+
     private var deviceModel: String {
         #if canImport(UIKit)
         UIDevice.current.model
@@ -752,6 +941,7 @@ final class TelegramService {
             direction: tdMessage.isOutgoing ? .outgoing : .incoming,
             status: deliveryStatus(for: tdMessage, chat: tdChat),
             kind: mappedContent.kind,
+            attachment: mappedContent.attachment,
             isPinned: tdMessage.isPinned,
             telegramMessageID: tdMessage.id
         )
@@ -773,56 +963,84 @@ final class TelegramService {
         }
     }
 
-    private func mappedMessageContent(_ content: TDLibKit.MessageContent) -> (text: String, kind: MessageKind) {
+    private func mappedMessageContent(_ content: TDLibKit.MessageContent) -> (text: String, kind: MessageKind, attachment: MessageAttachment?) {
         switch content {
         case let .messageText(value):
             let text = nonEmptyText(value.text.text) ?? "Message"
-            return (text, .text)
+            return (text, .text, nil)
 
         case let .messagePhoto(value):
             let description = nonEmptyText(value.caption.text) ?? "Photo attachment"
-            return (description, .photo(description: description))
+            return (
+                description,
+                .photo(description: description),
+                photoAttachment(from: value.photo)
+            )
 
         case let .messageVoiceNote(value):
             let transcript = nonEmptyText(value.caption.text) ?? "Voice note"
-            return (transcript, .voice(transcript: transcript, durationSeconds: value.voiceNote.duration))
+            return (
+                transcript,
+                .voice(transcript: transcript, durationSeconds: value.voiceNote.duration),
+                voiceNoteAttachment(from: value.voiceNote)
+            )
 
         case let .messageAudio(value):
             let fallback = audioDescription(fileName: value.audio.fileName, title: value.audio.title, performer: value.audio.performer)
             let description = nonEmptyText(value.caption.text) ?? fallback
-            return (description, .audio(description: description, durationSeconds: value.audio.duration))
+            return (
+                description,
+                .audio(description: description, durationSeconds: value.audio.duration),
+                audioAttachment(from: value.audio)
+            )
 
         case let .messageDocument(value):
             let fallback = nonEmptyText(value.document.fileName) ?? "Document attachment"
             let description = nonEmptyText(value.caption.text) ?? fallback
-            return (description, .document(description: description, fileName: nonEmptyText(value.document.fileName)))
+            return (
+                description,
+                .document(description: description, fileName: nonEmptyText(value.document.fileName)),
+                documentAttachment(from: value.document)
+            )
 
         case let .messageAnimation(value):
             let description = nonEmptyText(value.caption.text) ?? "Animation"
-            return (description, .video(description: description, durationSeconds: nil))
+            return (description, .video(description: description, durationSeconds: nil), nil)
 
         case let .messageVideo(value):
             let description = nonEmptyText(value.caption.text) ?? "Video attachment"
-            return (description, .video(description: description, durationSeconds: value.video.duration))
+            return (
+                description,
+                .video(description: description, durationSeconds: value.video.duration),
+                videoAttachment(from: value.video)
+            )
+
+        case let .messageVideoNote(value):
+            let description = "Video note"
+            return (
+                description,
+                .video(description: description, durationSeconds: value.videoNote.duration),
+                videoNoteAttachment(from: value.videoNote)
+            )
 
         case let .messageCall(value):
             let summary = callSummary(for: value)
-            return (summary, .text)
+            return (summary, .text, nil)
 
         case .messageSticker:
-            return ("Sticker", .text)
+            return ("Sticker", .text, nil)
 
         case .messageLocation:
-            return ("Location", .text)
+            return ("Location", .text, nil)
 
         case .messageContact:
-            return ("Shared contact", .text)
+            return ("Shared contact", .text, nil)
 
         case .messagePoll:
-            return ("Poll", .text)
+            return ("Poll", .text, nil)
 
         default:
-            return ("Unsupported message type", .text)
+            return ("Unsupported message type", .text, nil)
         }
     }
 
