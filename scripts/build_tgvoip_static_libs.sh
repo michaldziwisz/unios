@@ -9,6 +9,26 @@ WORK_DIR="${VOIP_WORK_DIR:-$ROOT_DIR/build/telegram-ios-voip}"
 VENDOR_ROOT="${VOIP_VENDOR_ROOT:-$ROOT_DIR/Vendor/TgVoip}"
 GENERATE_CONFIG_SCRIPT="$ROOT_DIR/scripts/generate_voip_engine_xcconfig.sh"
 
+readonly ARCHIVE_DEPENDENCY_LABELS=(
+  "//submodules/TgVoipWebrtc:TgVoipWebrtc"
+  "//submodules/MtProtoKit:MtProtoKit"
+  "//third-party/boringssl:crypto"
+  "//third-party/boringssl:ssl"
+  "//third-party/libyuv:libyuv"
+  "//third-party/ogg:ogg"
+  "//third-party/openh264:openh264"
+  "//third-party/opusfile:opusfile"
+  "//third-party/rnnoise:rnnoise"
+  "//third-party/td:TdBinding"
+  "//third-party/webrtc:webrtc"
+  "//third-party/webrtc:webrtc_objc"
+  "//third-party/webrtc/absl:absl"
+  "//third-party/webrtc/crc32c:crc32c"
+  "//third-party/webrtc/libsrtp:libsrtp"
+  "//third-party/webrtc/pffft:pffft"
+  "//third-party/webrtc/rnnoise:webrtc_rnnoise"
+)
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "TgVoipWebrtc can only be built on macOS. Writing a disabled VoIP xcconfig instead."
   "$GENERATE_CONFIG_SCRIPT"
@@ -113,7 +133,7 @@ build_target_for_cpu() {
       --cpu="$cpu" \
       --platforms="$platform_label" \
       --objccopt=-Wno-deprecated-declarations \
-      //submodules/TgVoipWebrtc:TgVoipWebrtc
+      "${ARCHIVE_DEPENDENCY_LABELS[@]}"
   )
 }
 
@@ -161,8 +181,8 @@ bundle_archives_for_cpu() {
   while IFS= read -r archive_path; do
     [[ "$archive_path" == *.a ]] || continue
     if ! resolved_path="$(resolve_archive_path "$archive_path")"; then
-      echo "Unable to resolve built archive path for $archive_path (cpu=$cpu)." >&2
-      exit 1
+      echo "Skipping non-materialized archive path for $archive_path (cpu=$cpu)." >&2
+      continue
     fi
     archives+=("$resolved_path")
   done < <(
