@@ -111,7 +111,10 @@ copy_library() {
       --objccopt=-Wno-deprecated-declarations \
       //submodules/TgVoipWebrtc:TgVoipWebrtc
   )
-  library_path="$(find "$WORK_DIR/bazel-bin" -path '*submodules/TgVoipWebrtc*' -name 'libTgVoipWebrtc.a' -print -quit)"
+  library_path="$WORK_DIR/bazel-bin/submodules/TgVoipWebrtc/libTgVoipWebrtc.a"
+  if [[ ! -f "$library_path" ]]; then
+    library_path="$(find -L "$WORK_DIR/bazel-bin" -path '*submodules/TgVoipWebrtc*' -name 'libTgVoipWebrtc.a' -print -quit)"
+  fi
   if [[ -z "$library_path" ]]; then
     echo "Unable to locate libTgVoipWebrtc.a for cpu=$cpu." >&2
     exit 1
