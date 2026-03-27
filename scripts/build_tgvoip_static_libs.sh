@@ -9,14 +9,28 @@ WORK_DIR="${VOIP_WORK_DIR:-$ROOT_DIR/build/telegram-ios-voip}"
 VENDOR_ROOT="${VOIP_VENDOR_ROOT:-$ROOT_DIR/Vendor/TgVoip}"
 GENERATE_CONFIG_SCRIPT="$ROOT_DIR/scripts/generate_voip_engine_xcconfig.sh"
 
-readonly ARCHIVE_DEPENDENCY_LABELS=(
-  "//submodules/TgVoipWebrtc:TgVoipWebrtc"
+# Bundle only explicit target outputs so host-config Bazel archives do not leak into iOS builds.
+readonly ARCHIVE_OUTPUT_LABELS=(
+  "//submodules/EncryptionProvider:EncryptionProvider"
   "//submodules/MtProtoKit:MtProtoKit"
+  "//submodules/TgVoipWebrtc:TgVoipWebrtc"
+  "//submodules/ffmpeg:ffmpeg"
+  "//submodules/ffmpeg:ffmpeg_lib"
+  "//submodules/ffmpeg:libffmpeg_build"
   "//third-party/boringssl:crypto"
   "//third-party/boringssl:ssl"
+  "//third-party/dav1d:dav1d"
+  "//third-party/dav1d:dav1d_build"
+  "//third-party/dav1d:dav1d_lib"
+  "//third-party/libvpx:libvpx_build"
+  "//third-party/libvpx:libvpx_lib"
+  "//third-party/libvpx:vpx"
   "//third-party/libyuv:libyuv"
   "//third-party/ogg:ogg"
   "//third-party/openh264:openh264"
+  "//third-party/opus:opus"
+  "//third-party/opus:opus_build"
+  "//third-party/opus:opus_lib"
   "//third-party/opusfile:opusfile"
   "//third-party/rnnoise:rnnoise"
   "//third-party/td:TdBinding"
@@ -133,29 +147,82 @@ build_target_for_cpu() {
       --cpu="$cpu" \
       --platforms="$platform_label" \
       --objccopt=-Wno-deprecated-declarations \
-      "${ARCHIVE_DEPENDENCY_LABELS[@]}"
+      "${ARCHIVE_OUTPUT_LABELS[@]}"
+  )
+}
+
+resolve_archive_path() {
+  local archive_path="$1"
+  local candidate
+  local suffix="$archive_path"
+
+  if [[ -f "$WORK_DIR/$archive_path" ]]; then
+    printf '%s\n' "$WORK_DIR/$archive_path"
+    return 0
+  fi
+
+  case "$archive_path" in
+    bazel-out/*/bin/*)
+      suffix="${archive_path#bazel-out/*/bin/}"
+      candidate="$WORK_DIR/bazel-bin/$suffix"
+      if [[ -f "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+      ;;
+  esac
+
+  candidate="$(find -L "$WORK_DIR/bazel-bin" -path "*/$suffix" -type f -print -quit)"
+  if [[ -n "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  return 1
+}
+
+query_archive_paths_for_label() {
+  local cpu="$1"
+  local platform_label="$2"
+  local label="$3"
+
+  (
+    cd "$WORK_DIR"
+    USE_BAZEL_VERSION="$TELEGRAM_BAZEL_VERSION" "$BAZEL_BIN" cquery \
+      --cpu="$cpu" \
+      --platforms="$platform_label" \
+      "$label" \
+      --output=files
   )
 }
 
 bundle_archives_for_cpu() {
-  local _cpu="$1"
+  local cpu="$1"
   local output_dir="$2"
+  local platform_label
   local archive_output="$output_dir/libTgVoipWebrtc.a"
   local -a archives=()
   local archive_path
+  local resolved_path
+  local label
+
+  platform_label="$(platform_label_for_cpu "$cpu")"
 
   while IFS= read -r archive_path; do
-    archives+=("$archive_path")
+    [[ "$archive_path" == *.a ]] || continue
+    if ! resolved_path="$(resolve_archive_path "$archive_path")"; then
+      echo "Skipping unresolved archive path for $archive_path (cpu=$cpu)." >&2
+      continue
+    fi
+    archives+=("$resolved_path")
   done < <(
-    find -L "$WORK_DIR/bazel-bin" \
-      \( -path "$WORK_DIR/bazel-bin/submodules/*" -o -path "$WORK_DIR/bazel-bin/third-party/*" \) \
-      -type f \
-      -name '*.a' \
-      | sort -u
+    for label in "${ARCHIVE_OUTPUT_LABELS[@]}"; do
+      query_archive_paths_for_label "$cpu" "$platform_label" "$label"
+    done | sort -u
   )
 
   if [[ ${#archives[@]} -eq 0 ]]; then
-    echo "Unable to locate built static archives under bazel-bin." >&2
+    echo "Unable to locate target static archives for cpu=$cpu." >&2
     exit 1
   fi
 
