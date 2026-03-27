@@ -881,8 +881,8 @@ final class TelegramService {
         let peerName = try await peerDisplayName(for: call.userId)
         let previous = activeCalls[call.id]
         let phase = mappedCallPhase(for: call)
-        let now = Date()
-        let connectedAt: Date?
+        let now = Foundation.Date()
+        let connectedAt: Foundation.Date?
         switch phase {
         case .connected:
             connectedAt = previous?.connectedAt ?? now
