@@ -108,6 +108,7 @@ copy_library() {
     USE_BAZEL_VERSION="$TELEGRAM_BAZEL_VERSION" "$BAZEL_BIN" build \
       --cpu="$cpu" \
       --platforms="$platform_label" \
+      --objccopt=-Wno-deprecated-declarations \
       //submodules/TgVoipWebrtc:TgVoipWebrtc
   )
   library_path="$(find "$WORK_DIR/bazel-bin" -path '*submodules/TgVoipWebrtc*' -name 'libTgVoipWebrtc.a' -print -quit)"
