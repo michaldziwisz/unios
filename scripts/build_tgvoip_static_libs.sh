@@ -7,6 +7,7 @@ TELEGRAM_IOS_REF="${TELEGRAM_IOS_REF:-7504a0f92694a3ccbb544e05f97304f8d0891ba9}"
 TELEGRAM_BAZEL_VERSION="${TELEGRAM_BAZEL_VERSION:-8.4.2}"
 WORK_DIR="${VOIP_WORK_DIR:-$ROOT_DIR/build/telegram-ios-voip}"
 VENDOR_ROOT="${VOIP_VENDOR_ROOT:-$ROOT_DIR/Vendor/TgVoip}"
+VOIP_MIN_IOS="${VOIP_MIN_IOS:-17.0}"
 GENERATE_CONFIG_SCRIPT="$ROOT_DIR/scripts/generate_voip_engine_xcconfig.sh"
 
 # Bundle only explicit target outputs so host-config Bazel archives do not leak into iOS builds.
@@ -145,6 +146,7 @@ build_target_for_cpu() {
     cd "$WORK_DIR"
     USE_BAZEL_VERSION="$TELEGRAM_BAZEL_VERSION" "$BAZEL_BIN" build \
       --cpu="$cpu" \
+      --ios_minimum_os="$VOIP_MIN_IOS" \
       --platforms="$platform_label" \
       --objccopt=-Wno-deprecated-declarations \
       "${ARCHIVE_OUTPUT_LABELS[@]}"
@@ -189,6 +191,7 @@ query_archive_paths_for_cpu() {
     cd "$WORK_DIR"
     USE_BAZEL_VERSION="$TELEGRAM_BAZEL_VERSION" "$BAZEL_BIN" cquery \
       --cpu="$cpu" \
+      --ios_minimum_os="$VOIP_MIN_IOS" \
       --platforms="$platform_label" \
       "deps(//submodules/TgVoipWebrtc:TgVoipWebrtc)" \
       --output=files
