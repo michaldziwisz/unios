@@ -7,14 +7,14 @@ struct TelegramAppConfiguration {
 
     static func load(bundle: Bundle = .main) -> TelegramAppConfiguration? {
         guard
-            let rawAPIID = bundle.stringValue(forInfoDictionaryKey: "TELEGRAM_API_ID"),
+            let rawAPIID = bundle.stringValue(forInfoDictionaryKey: "UniOSTelegramAPIID"),
             let apiID = Int(rawAPIID),
-            let apiHash = bundle.stringValue(forInfoDictionaryKey: "TELEGRAM_API_HASH")
+            let apiHash = bundle.stringValue(forInfoDictionaryKey: "UniOSTelegramAPIHash")
         else {
             return nil
         }
 
-        let useTestDC = bundle.boolValue(forInfoDictionaryKey: "TELEGRAM_USE_TEST_DC")
+        let useTestDC = bundle.boolValue(forInfoDictionaryKey: "UniOSTelegramUseTestDC")
         return TelegramAppConfiguration(apiID: apiID, apiHash: apiHash, useTestDC: useTestDC)
     }
 }
