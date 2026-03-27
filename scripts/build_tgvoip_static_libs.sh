@@ -199,7 +199,6 @@ bundle_archives_for_cpu() {
   local cpu="$1"
   local output_dir="$2"
   local platform_label
-  local archive_output="$output_dir/libTgVoipWebrtc.a"
   local -a archives=()
   local archive_path
   local resolved_path
@@ -220,8 +219,10 @@ bundle_archives_for_cpu() {
     exit 1
   fi
 
-  rm -f "$archive_output"
-  /usr/bin/libtool -static -o "$archive_output" "${archives[@]}"
+  find "$output_dir" -maxdepth 1 -type f -name '*.a' -delete
+  for resolved_path in "${archives[@]}"; do
+    cp -f "$resolved_path" "$output_dir/$(basename "$resolved_path")"
+  done
 }
 
 build_target_for_cpu "ios_arm64"
