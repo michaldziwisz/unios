@@ -28,7 +28,9 @@ final class UniOSAppModel: ObservableObject {
     @Published private(set) var isSyncingTelegramData = false
 
     private let seed: UniOSSeedData
-    private let telegramService: TelegramService?
+    private let telegramConfiguration: TelegramAppConfiguration?
+    private var telegramService: TelegramService?
+    private var hasBootstrappedTelegramSession = false
     private var overviewRefreshTask: Task<Void, Never>?
     private static let isRunningUnitTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
@@ -40,6 +42,7 @@ final class UniOSAppModel: ObservableObject {
         self.accessibilityPreferences = seed.accessibilityPreferences
 
         if Self.isRunningUnitTests {
+            self.telegramConfiguration = nil
             self.telegramService = nil
             self.sessionSource = .demo
             self.telegramSignInState = .unavailable(message: "Telegram bootstrap is disabled while unit tests are running.")
@@ -47,16 +50,12 @@ final class UniOSAppModel: ObservableObject {
         }
 
         if let configuration = TelegramAppConfiguration.load() {
-            let service = TelegramService(configuration: configuration)
-            self.telegramService = service
+            self.telegramConfiguration = configuration
+            self.telegramService = nil
             self.sessionSource = .telegram
-            self.telegramSignInState = .working(message: "Checking the Telegram session.")
-            service.delegate = self
-
-            Task { [weak self] in
-                await self?.bootstrapTelegramSession()
-            }
+            self.telegramSignInState = .waitingForPhone
         } else {
+            self.telegramConfiguration = nil
             self.telegramService = nil
             self.sessionSource = .demo
             self.telegramSignInState = .unavailable(
@@ -86,7 +85,7 @@ final class UniOSAppModel: ObservableObject {
     }
 
     var canUseTelegram: Bool {
-        telegramService != nil
+        telegramConfiguration != nil
     }
 
     var canDisplayActiveCallVideo: Bool {
@@ -117,7 +116,7 @@ final class UniOSAppModel: ObservableObject {
     }
 
     func submitTelegramPhoneNumber() {
-        guard let telegramService else {
+        guard canUseTelegram else {
             announce("Telegram credentials are unavailable in this build.")
             return
         }
@@ -131,6 +130,13 @@ final class UniOSAppModel: ObservableObject {
         telegramSignInState = .working(message: "Sending the Telegram phone number.")
         Task { [weak self] in
             do {
+                guard let self else {
+                    return
+                }
+                let telegramService = try await self.startTelegramSessionIfNeeded()
+                guard self.telegramSignInState.acceptsPhoneNumber || self.telegramSignInState == .waitingForPhone else {
+                    return
+                }
                 try await telegramService.submitPhoneNumber(phoneNumber)
             } catch {
                 await self?.handleTelegramFailure(error, fallbackState: .waitingForPhone)
@@ -139,7 +145,7 @@ final class UniOSAppModel: ObservableObject {
     }
 
     func submitTelegramEmailAddress() {
-        guard let telegramService else {
+        guard canUseTelegram else {
             announce("Telegram credentials are unavailable in this build.")
             return
         }
@@ -153,6 +159,13 @@ final class UniOSAppModel: ObservableObject {
         telegramSignInState = .working(message: "Sending the Telegram email address.")
         Task { [weak self] in
             do {
+                guard let self else {
+                    return
+                }
+                let telegramService = try await self.startTelegramSessionIfNeeded()
+                guard self.telegramSignInState.acceptsEmailAddress else {
+                    return
+                }
                 try await telegramService.submitEmailAddress(emailAddress)
             } catch {
                 await self?.handleTelegramFailure(
@@ -164,7 +177,7 @@ final class UniOSAppModel: ObservableObject {
     }
 
     func submitTelegramEmailCode() {
-        guard let telegramService else {
+        guard canUseTelegram else {
             announce("Telegram credentials are unavailable in this build.")
             return
         }
@@ -178,6 +191,13 @@ final class UniOSAppModel: ObservableObject {
         telegramSignInState = .working(message: "Checking the Telegram email code.")
         Task { [weak self] in
             do {
+                guard let self else {
+                    return
+                }
+                let telegramService = try await self.startTelegramSessionIfNeeded()
+                guard self.telegramSignInState.acceptsEmailCode else {
+                    return
+                }
                 try await telegramService.submitEmailCode(code)
             } catch {
                 await self?.handleTelegramFailure(
@@ -193,7 +213,7 @@ final class UniOSAppModel: ObservableObject {
     }
 
     func submitTelegramCode() {
-        guard let telegramService else {
+        guard canUseTelegram else {
             announce("Telegram credentials are unavailable in this build.")
             return
         }
@@ -207,6 +227,13 @@ final class UniOSAppModel: ObservableObject {
         telegramSignInState = .working(message: "Checking the Telegram code.")
         Task { [weak self] in
             do {
+                guard let self else {
+                    return
+                }
+                let telegramService = try await self.startTelegramSessionIfNeeded()
+                guard self.telegramSignInState.acceptsCode else {
+                    return
+                }
                 try await telegramService.submitCode(code)
             } catch {
                 await self?.handleTelegramFailure(error, fallbackState: .waitingForCode(message: "Enter the Telegram code."))
@@ -215,7 +242,7 @@ final class UniOSAppModel: ObservableObject {
     }
 
     func submitTelegramPassword() {
-        guard let telegramService else {
+        guard canUseTelegram else {
             announce("Telegram credentials are unavailable in this build.")
             return
         }
@@ -229,6 +256,13 @@ final class UniOSAppModel: ObservableObject {
         telegramSignInState = .working(message: "Checking the Telegram password.")
         Task { [weak self] in
             do {
+                guard let self else {
+                    return
+                }
+                let telegramService = try await self.startTelegramSessionIfNeeded()
+                guard self.telegramSignInState.acceptsPassword else {
+                    return
+                }
                 try await telegramService.submitPassword(password)
             } catch {
                 await self?.handleTelegramFailure(error, fallbackState: .waitingForPassword(hint: ""))
@@ -250,7 +284,7 @@ final class UniOSAppModel: ObservableObject {
                     await self?.handleTelegramFailure(error, fallbackState: .waitingForPhone)
                 }
 
-                await self?.bootstrapTelegramSession()
+                await self?.bootstrapTelegramSessionIfNeeded()
             }
             return
         }
@@ -932,17 +966,46 @@ final class UniOSAppModel: ObservableObject {
         )
     }
 
-    private func bootstrapTelegramSession() async {
-        guard let telegramService else {
-            return
+    private func bootstrapTelegramSessionIfNeeded() async {
+        _ = try? await startTelegramSessionIfNeeded()
+    }
+
+    private func startTelegramSessionIfNeeded() async throws -> TelegramService {
+        let telegramService = try ensureTelegramService()
+
+        if hasBootstrappedTelegramSession {
+            return telegramService
         }
 
         do {
+            hasBootstrappedTelegramSession = true
             let state = try await telegramService.start()
             handleTelegramStateUpdate(state)
+            return telegramService
         } catch {
+            hasBootstrappedTelegramSession = false
             await handleTelegramFailure(error, fallbackState: .waitingForPhone)
+            throw error
         }
+    }
+
+    private func ensureTelegramService() throws -> TelegramService {
+        if let telegramService {
+            return telegramService
+        }
+
+        guard let telegramConfiguration else {
+            throw NSError(
+                domain: "UniOS.Telegram",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Telegram credentials are unavailable in this build."]
+            )
+        }
+
+        let telegramService = TelegramService(configuration: telegramConfiguration)
+        telegramService.delegate = self
+        self.telegramService = telegramService
+        return telegramService
     }
 
     private func handleTelegramStateUpdate(_ newState: TelegramSignInState) {
@@ -1116,7 +1179,7 @@ final class UniOSAppModel: ObservableObject {
     private func handleTelegramFailure(_ error: any Swift.Error, fallbackState: TelegramSignInState) async {
         let message = userFacingMessage(for: error)
         telegramSignInState = .failed(message: message)
-        if !isAuthenticated, telegramService != nil {
+        if !isAuthenticated, telegramConfiguration != nil {
             sessionSource = .telegram
         }
         announce(message)
@@ -1144,11 +1207,12 @@ final class UniOSAppModel: ObservableObject {
         signInPassword = ""
         accessibilityPreferences = seed.accessibilityPreferences
 
-        if telegramService != nil {
+        if telegramConfiguration != nil {
             sessionSource = .telegram
             chats = []
             contacts = []
             calls = []
+            hasBootstrappedTelegramSession = false
             telegramSignInState = .waitingForPhone
         } else {
             sessionSource = .demo
