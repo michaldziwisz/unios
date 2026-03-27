@@ -51,6 +51,18 @@ enum SampleData {
                     direction: .incoming,
                     status: .sent,
                     kind: .voice(transcript: "Prototype is ready for VoiceOver review.", durationSeconds: 12)
+                ),
+                Message(
+                    id: UUID(uuidString: "20000000-0000-0000-0000-000000000008") ?? UUID(),
+                    sender: "Mateusz",
+                    text: "Accessibility checklist March.pdf",
+                    timestamp: now.addingTimeInterval(-420),
+                    direction: .incoming,
+                    status: .read,
+                    kind: .document(
+                        description: "Accessibility checklist March.pdf",
+                        fileName: "Accessibility checklist March.pdf"
+                    )
                 )
             ],
             avatarHue: 0.58
@@ -123,6 +135,15 @@ enum SampleData {
                     direction: .incoming,
                     status: .read,
                     kind: .text
+                ),
+                Message(
+                    id: UUID(uuidString: "20000000-0000-0000-0000-000000000009") ?? UUID(),
+                    sender: "Rafał",
+                    text: "Warehouse walkthrough",
+                    timestamp: now.addingTimeInterval(-10400),
+                    direction: .incoming,
+                    status: .read,
+                    kind: .video(description: "Warehouse walkthrough", durationSeconds: 37)
                 )
             ],
             avatarHue: 0.32
@@ -164,10 +185,9 @@ enum SampleData {
 
     static let calls: [CallLog] = [
         CallLog(id: UUID(), personName: "Kasia Nowak", direction: .outgoing, time: now.addingTimeInterval(-5400), durationDescription: "14 minutes", note: "Reviewed onboarding"),
-        CallLog(id: UUID(), personName: "Lena Zielińska", direction: .incoming, time: now.addingTimeInterval(-12600), durationDescription: "8 minutes", note: "VoiceOver sweep"),
+        CallLog(id: UUID(), personName: "Lena Zielińska", direction: .incoming, time: now.addingTimeInterval(-12600), durationDescription: "8 minutes", note: "VoiceOver sweep", isVideo: true),
         CallLog(id: UUID(), personName: "Unknown caller", direction: .missed, time: now.addingTimeInterval(-18400), durationDescription: "No answer", note: "Potential recruitment spam"),
-        CallLog(id: UUID(), personName: "Nadia Borkowska", direction: .missed, time: now.addingTimeInterval(-24800), durationDescription: "No answer", note: "Prototype sync"),
+        CallLog(id: UUID(), personName: "Nadia Borkowska", direction: .missed, time: now.addingTimeInterval(-24800), durationDescription: "No answer", note: "Prototype sync", isVideo: true),
         CallLog(id: UUID(), personName: "Aurora Studio", direction: .incoming, time: now.addingTimeInterval(-43200), durationDescription: "22 minutes", note: "Sprint planning")
     ]
 }
-

@@ -64,30 +64,75 @@ struct ContactsView: View {
                 }
             }
 
-            HStack {
-                Button {
-                    appModel.startChat(with: contact) { chatID in
-                        guard let chatID else {
-                            return
-                        }
-                        route.wrappedValue = ContactConversationRoute(id: chatID)
-                    }
-                } label: {
-                    Label("Message", systemImage: "bubble.left.fill")
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    messageButton(contact: contact, route: route)
+                    audioCallButton(contact: contact)
+                    videoCallButton(contact: contact)
                 }
-                .buttonStyle(.borderedProminent)
 
-                Button {
-                    appModel.call(contact.name)
-                } label: {
-                    Label("Call", systemImage: "phone.fill")
+                VStack(alignment: .leading, spacing: 10) {
+                    messageButton(contact: contact, route: route)
+                    HStack {
+                        audioCallButton(contact: contact)
+                        videoCallButton(contact: contact)
+                    }
                 }
-                .buttonStyle(.bordered)
             }
         }
         .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(contact.name). \(contact.role). \(contact.presence.description). \(contact.note)")
-        .accessibilityHint("Message or call actions are available below.")
+        .accessibilityHint("Message, audio call, and video call actions are available below.")
+    }
+
+    private func messageButton(contact: Contact, route: Binding<ContactConversationRoute?>) -> some View {
+        Button {
+            appModel.startChat(with: contact) { chatID in
+                guard let chatID else {
+                    return
+                }
+                route.wrappedValue = ContactConversationRoute(id: chatID)
+            }
+        } label: {
+            Label("Message", systemImage: "bubble.left.fill")
+        }
+        .buttonStyle(.borderedProminent)
+    }
+
+    private func audioCallButton(contact: Contact) -> some View {
+        Button {
+            appModel.call(contact)
+        } label: {
+            Label("Audio Call", systemImage: "phone.fill")
+        }
+        .buttonStyle(.bordered)
+        .disabled(appModel.sessionSource == .telegram && contact.telegramUserID == nil)
+        .accessibilityHint(audioCallHint(for: contact))
+    }
+
+    private func videoCallButton(contact: Contact) -> some View {
+        Button {
+            appModel.call(contact, isVideo: true)
+        } label: {
+            Label("Video Call", systemImage: "video.fill")
+        }
+        .buttonStyle(.bordered)
+        .disabled(appModel.sessionSource == .telegram && contact.telegramUserID == nil)
+        .accessibilityHint(videoCallHint(for: contact))
+    }
+
+    private func audioCallHint(for contact: Contact) -> String {
+        if appModel.sessionSource == .telegram, contact.telegramUserID == nil {
+            return "Telegram audio calls are available only for direct contacts in this build."
+        }
+        return "Starts an audio call with \(contact.name)."
+    }
+
+    private func videoCallHint(for contact: Contact) -> String {
+        if appModel.sessionSource == .telegram, contact.telegramUserID == nil {
+            return "Telegram video calls are available only for direct contacts in this build."
+        }
+        return "Starts a video call with \(contact.name)."
     }
 }

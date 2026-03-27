@@ -20,7 +20,7 @@ The current build keeps a demo workspace and also includes a real Telegram bridg
 - VoiceOver clarity before visual polish
 - Dynamic Type-friendly layouts
 - Explicit accessibility labels, values, and hints
-- Real Telegram auth, chat sync, history loading, and text sending through TDLibKit when configured
+- Real Telegram auth, chat sync, history loading, media sending, and call-log sync through TDLibKit when configured
 - GitHub-hosted macOS CI producing an unsigned `.ipa` artifact
 
 ## Local Development
@@ -57,13 +57,17 @@ The `TDLibKit` path currently covers:
 - synced chat list
 - synced chat history when a conversation opens
 - sending text messages
+- sending photo attachments from Photos or Files
+- sending files and media documents from the Files importer
 - loading Telegram contacts into the Contacts tab
+- loading Telegram call history into the Calls tab
+- best-effort outgoing audio and video call requests for direct Telegram contacts
 
 Still intentionally incomplete:
 
-- call history and Telegram calling
+- full in-call audio and video session handling inside UniOS after Telegram accepts a call
 - mute/unmute sync
-- media upload
+- native voice-note recording, camera capture, and inline playback controls
 - native Apple ID / Google ID auth tokens for the email branch
 - registration
 - production signing and App Store distribution

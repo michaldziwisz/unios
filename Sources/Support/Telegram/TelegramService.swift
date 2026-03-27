@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -122,6 +125,8 @@ protocol TelegramServiceDelegate: AnyObject {
 }
 
 final class TelegramService {
+    private static let supportedCallVersions = ["2.4.4"]
+
     weak var delegate: (any TelegramServiceDelegate)?
 
     private let configuration: TelegramAppConfiguration
@@ -275,6 +280,96 @@ final class TelegramService {
             replyTo: nil,
             topicId: nil
         )
+    }
+
+    func sendPhoto(
+        from localFileURL: URL,
+        caption: String,
+        size: CGSize?,
+        to chatID: Int64
+    ) async throws {
+        let dimensions = mediaDimensions(from: size)
+        let content = InputMessageContent.inputMessagePhoto(
+            InputMessagePhoto(
+                addedStickerFileIds: [],
+                caption: formattedCaption(caption),
+                hasSpoiler: false,
+                height: dimensions.height,
+                photo: .inputFileLocal(InputFileLocal(path: localFileURL.path)),
+                selfDestructType: nil,
+                showCaptionAboveMedia: false,
+                thumbnail: nil,
+                width: dimensions.width
+            )
+        )
+
+        _ = try await client.sendMessage(
+            chatId: chatID,
+            inputMessageContent: content,
+            options: nil,
+            replyMarkup: nil,
+            replyTo: nil,
+            topicId: nil
+        )
+    }
+
+    func sendDocument(
+        from localFileURL: URL,
+        caption: String,
+        disableContentTypeDetection: Bool = false,
+        to chatID: Int64
+    ) async throws {
+        let content = InputMessageContent.inputMessageDocument(
+            InputMessageDocument(
+                caption: formattedCaption(caption),
+                disableContentTypeDetection: disableContentTypeDetection,
+                document: .inputFileLocal(InputFileLocal(path: localFileURL.path)),
+                thumbnail: nil
+            )
+        )
+
+        _ = try await client.sendMessage(
+            chatId: chatID,
+            inputMessageContent: content,
+            options: nil,
+            replyMarkup: nil,
+            replyTo: nil,
+            topicId: nil
+        )
+    }
+
+    func loadCallLogs(limit: Int, onlyMissed: Bool) async throws -> [CallLog] {
+        let response = try await client.searchCallMessages(
+            limit: min(limit, 100),
+            offset: "",
+            onlyMissed: onlyMissed
+        )
+
+        var items: [CallLog] = []
+        items.reserveCapacity(response.messages.count)
+
+        for message in response.messages {
+            if let item = try await mapCallLog(message) {
+                items.append(item)
+            }
+        }
+
+        return items.sorted { $0.time > $1.time }
+    }
+
+    func startCall(to userID: Int64, isVideo: Bool) async throws -> Int {
+        let callID = try await client.createCall(
+            isVideo: isVideo,
+            protocol: CallProtocol(
+                libraryVersions: Self.supportedCallVersions,
+                maxLayer: 92,
+                minLayer: 65,
+                udpP2p: true,
+                udpReflector: true
+            ),
+            userId: userID
+        )
+        return callID.id
     }
 
     func markViewed(chatID: Int64, messageIDs: [Int64]) async {
@@ -487,6 +582,119 @@ final class TelegramService {
         return "Enter the \(length)-character Telegram code sent to \(destination)."
     }
 
+    private func mediaDimensions(from size: CGSize?) -> (width: Int, height: Int) {
+        guard let size else {
+            return (0, 0)
+        }
+
+        return (
+            width: max(Int(size.width.rounded()), 0),
+            height: max(Int(size.height.rounded()), 0)
+        )
+    }
+
+    private func formattedCaption(_ text: String) -> FormattedText? {
+        guard let caption = nonEmptyText(text) else {
+            return nil
+        }
+        return FormattedText(entities: [], text: caption)
+    }
+
+    private func mapCallLog(_ message: TDLibKit.Message) async throws -> CallLog? {
+        let call: MessageCall
+        switch message.content {
+        case let .messageCall(value):
+            call = value
+        default:
+            return nil
+        }
+
+        let chat = try await client.getChat(chatId: message.chatId)
+        let personName: String
+        let telegramUserID: Int64?
+        switch chat.type {
+        case let .chatTypePrivate(value):
+            let user = try await client.getUser(userId: value.userId)
+            personName = Self.displayName(for: user)
+            telegramUserID = value.userId
+        default:
+            personName = chat.title
+            telegramUserID = nil
+        }
+
+        return CallLog(
+            id: StableIdentifier.messageUUID(chatID: message.chatId, messageID: message.id),
+            personName: personName,
+            direction: callDirection(for: message, discardReason: call.discardReason),
+            time: messageDate(for: message.date),
+            durationDescription: callDurationDescription(for: call),
+            note: callNote(for: call),
+            isVideo: call.isVideo,
+            telegramUserID: telegramUserID
+        )
+    }
+
+    private func callDirection(for message: TDLibKit.Message, discardReason: CallDiscardReason) -> CallDirection {
+        switch discardReason {
+        case .callDiscardReasonMissed, .callDiscardReasonDeclined:
+            return message.isOutgoing ? .outgoing : .missed
+        default:
+            return message.isOutgoing ? .outgoing : .incoming
+        }
+    }
+
+    private func callDurationDescription(for call: MessageCall) -> String {
+        guard call.duration > 0 else {
+            return "No answer"
+        }
+
+        let minutes = call.duration / 60
+        let seconds = call.duration % 60
+        if minutes > 0 && seconds > 0 {
+            return "\(minutes)m \(seconds)s"
+        }
+        if minutes > 0 {
+            return minutes == 1 ? "1 minute" : "\(minutes) minutes"
+        }
+        return seconds == 1 ? "1 second" : "\(seconds) seconds"
+    }
+
+    private func callNote(for call: MessageCall) -> String {
+        let callType = call.isVideo ? "Video" : "Audio"
+
+        switch call.discardReason {
+        case .callDiscardReasonMissed:
+            return "\(callType) call missed"
+        case .callDiscardReasonDeclined:
+            return "\(callType) call declined"
+        case .callDiscardReasonDisconnected:
+            return "\(callType) call disconnected"
+        case .callDiscardReasonHungUp:
+            return "\(callType) call ended"
+        case let .callDiscardReasonUpgradeToGroupCall(value):
+            return value.inviteLink.isEmpty ? "\(callType) call upgraded to a group call" : "Upgraded to a group call"
+        case .callDiscardReasonEmpty:
+            return "\(callType) call"
+        }
+    }
+
+    private func callSummary(for call: MessageCall) -> String {
+        "\(callNote(for: call)). \(callDurationDescription(for: call))"
+    }
+
+    private func audioDescription(fileName: String, title: String, performer: String) -> String {
+        if let title = nonEmptyText(title), let performer = nonEmptyText(performer) {
+            return "\(title) by \(performer)"
+        }
+        if let title = nonEmptyText(title) {
+            return title
+        }
+        if let performer = nonEmptyText(performer) {
+            return performer
+        }
+        return nonEmptyText(fileName) ?? "Audio attachment"
+    }
+
     private var deviceModel: String {
         #if canImport(UIKit)
         UIDevice.current.model
@@ -580,20 +788,26 @@ final class TelegramService {
             return (transcript, .voice(transcript: transcript, durationSeconds: value.voiceNote.duration))
 
         case let .messageAudio(value):
-            let description = nonEmptyText(value.caption.text) ?? "Audio attachment"
-            return (description, .text)
+            let fallback = audioDescription(fileName: value.audio.fileName, title: value.audio.title, performer: value.audio.performer)
+            let description = nonEmptyText(value.caption.text) ?? fallback
+            return (description, .audio(description: description, durationSeconds: value.audio.duration))
 
         case let .messageDocument(value):
-            let description = nonEmptyText(value.caption.text) ?? "Document attachment"
-            return (description, .text)
+            let fallback = nonEmptyText(value.document.fileName) ?? "Document attachment"
+            let description = nonEmptyText(value.caption.text) ?? fallback
+            return (description, .document(description: description, fileName: nonEmptyText(value.document.fileName)))
 
         case let .messageAnimation(value):
             let description = nonEmptyText(value.caption.text) ?? "Animation"
-            return (description, .text)
+            return (description, .video(description: description, durationSeconds: nil))
 
         case let .messageVideo(value):
             let description = nonEmptyText(value.caption.text) ?? "Video attachment"
-            return (description, .text)
+            return (description, .video(description: description, durationSeconds: value.video.duration))
+
+        case let .messageCall(value):
+            let summary = callSummary(for: value)
+            return (summary, .text)
 
         case .messageSticker:
             return ("Sticker", .text)

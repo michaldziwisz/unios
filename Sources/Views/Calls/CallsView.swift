@@ -41,7 +41,7 @@ struct CallsView: View {
                             .foregroundStyle(UniOSTheme.quietText)
                     }
 
-                    Text("\(entry.direction.label) · \(entry.durationDescription)")
+                    Text("\(entry.isVideo ? "Video" : "Audio") · \(entry.direction.label) · \(entry.durationDescription)")
                         .font(.subheadline)
                         .foregroundStyle(UniOSTheme.quietText)
 
@@ -50,15 +50,17 @@ struct CallsView: View {
                         .foregroundStyle(UniOSTheme.quietText)
 
                     Button {
-                        appModel.call(entry.personName)
+                        appModel.call(entry)
                     } label: {
-                        Label("Call Back", systemImage: "phone.fill")
+                        Label(entry.isVideo ? "Start Video" : "Call Back", systemImage: entry.isVideo ? "video.fill" : "phone.fill")
                     }
                     .buttonStyle(.bordered)
+                    .disabled(appModel.sessionSource == .telegram && entry.telegramUserID == nil)
+                    .accessibilityHint(callButtonHint(for: entry))
                 }
                 .padding(.vertical, 8)
                 .accessibilityElement(children: .contain)
-                .accessibilityLabel("\(entry.personName). \(entry.direction.label) call. \(entry.durationDescription). \(entry.timeLabel). \(entry.note)")
+                .accessibilityLabel("\(entry.personName). \(entry.isVideo ? "Video" : "Audio"). \(entry.direction.label) call. \(entry.durationDescription). \(entry.timeLabel). \(entry.note)")
             }
         }
         .navigationTitle("Calls")
@@ -67,9 +69,17 @@ struct CallsView: View {
                 ContentUnavailableView(
                     "No Calls",
                     systemImage: "phone",
-                    description: Text(appModel.sessionSource == .telegram ? "Telegram call history is not connected in this build yet." : "There are no call records for the selected filter.")
+                    description: Text(appModel.sessionSource == .telegram ? "No Telegram call records were found for the current filter yet." : "There are no call records for the selected filter.")
                 )
             }
         }
+    }
+
+    private func callButtonHint(for entry: CallLog) -> String {
+        if appModel.sessionSource == .telegram, entry.telegramUserID == nil {
+            return "This call can only be reviewed in the current build because Telegram can start calls only for direct contacts."
+        }
+
+        return entry.isVideo ? "Starts a video call with \(entry.personName)." : "Calls \(entry.personName) again."
     }
 }

@@ -99,6 +99,9 @@ enum MessageKind: Hashable {
     case text
     case voice(transcript: String, durationSeconds: Int)
     case photo(description: String)
+    case document(description: String, fileName: String?)
+    case audio(description: String, durationSeconds: Int?)
+    case video(description: String, durationSeconds: Int?)
 
     var summaryText: String {
         switch self {
@@ -108,6 +111,21 @@ enum MessageKind: Hashable {
             return "Voice note, \(durationSeconds) seconds. \(transcript)"
         case let .photo(description):
             return "Photo. \(description)"
+        case let .document(description, fileName):
+            if let fileName, !fileName.isEmpty {
+                return "Document, \(fileName). \(description)"
+            }
+            return "Document. \(description)"
+        case let .audio(description, durationSeconds):
+            if let durationSeconds {
+                return "Audio, \(durationSeconds) seconds. \(description)"
+            }
+            return "Audio. \(description)"
+        case let .video(description, durationSeconds):
+            if let durationSeconds {
+                return "Video, \(durationSeconds) seconds. \(description)"
+            }
+            return "Video. \(description)"
         }
     }
 }
@@ -134,7 +152,7 @@ struct Message: Identifiable, Hashable {
             return "\(contextPrefix) \(text)".trimmingCharacters(in: .whitespaces)
         case .voice:
             return "\(contextPrefix) \(kind.summaryText)".trimmingCharacters(in: .whitespaces)
-        case .photo:
+        case .photo, .document, .audio, .video:
             return "\(contextPrefix) \(kind.summaryText)".trimmingCharacters(in: .whitespaces)
         }
     }
@@ -276,6 +294,8 @@ struct CallLog: Identifiable, Hashable {
     var time: Date
     var durationDescription: String
     var note: String
+    var isVideo: Bool = false
+    var telegramUserID: Int64? = nil
 
     var timeLabel: String {
         if Calendar.current.isDateInToday(time) {

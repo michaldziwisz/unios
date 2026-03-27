@@ -325,23 +325,89 @@ final class UniOSAppModel: ObservableObject {
             return
         }
 
-        mutateChat(chatID) { chat in
-            let message = Message(
-                id: UUID(),
-                sender: profileName,
-                text: text,
-                timestamp: Date(),
-                direction: .outgoing,
-                status: .sent,
-                kind: .text
-            )
-            chat.messages.append(message)
-            chat.summary = text
-            chat.lastUpdated = message.timestamp
-            chat.unreadCount = 0
-        }
+        appendOutgoingMessage(text: text, kind: .text, to: chatID)
 
         announce("Message sent to \(chat.title).")
+    }
+
+    func sendPhoto(at localFileURL: URL, size: CGSize?, caption rawCaption: String, to chatID: UUID) {
+        guard let chat = chat(for: chatID) else {
+            announce("Conversation is unavailable.")
+            return
+        }
+
+        let caption = rawCaption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = caption.isEmpty ? "Photo attachment" : caption
+
+        if sessionSource == .telegram, let remoteChatID = chat.telegramChatID, let telegramService {
+            announce("Sending photo to \(chat.title).")
+
+            Task { [weak self] in
+                do {
+                    try await telegramService.sendPhoto(
+                        from: localFileURL,
+                        caption: caption,
+                        size: size,
+                        to: remoteChatID
+                    )
+                    await self?.refreshTelegramChat(
+                        remoteChatID: remoteChatID,
+                        successAnnouncement: "Photo sent to \(chat.title)."
+                    )
+                    await self?.scheduleTelegramOverviewRefresh(delayNanoseconds: 150_000_000)
+                } catch {
+                    await self?.handleTelegramFailure(error, fallbackState: .waitingForPhone)
+                }
+            }
+            return
+        }
+
+        appendOutgoingMessage(text: description, kind: .photo(description: description), to: chatID)
+        announce("Photo sent to \(chat.title).")
+    }
+
+    func sendDocument(at localFileURL: URL, caption rawCaption: String, to chatID: UUID) {
+        guard let chat = chat(for: chatID) else {
+            announce("Conversation is unavailable.")
+            return
+        }
+
+        let caption = rawCaption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fileName = localFileURL.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = fileName.isEmpty ? "Document attachment" : fileName
+        let description = caption.isEmpty ? fallback : caption
+
+        if sessionSource == .telegram, let remoteChatID = chat.telegramChatID, let telegramService {
+            announce("Sending document to \(chat.title).")
+
+            Task { [weak self] in
+                do {
+                    try await telegramService.sendDocument(
+                        from: localFileURL,
+                        caption: caption,
+                        to: remoteChatID
+                    )
+                    await self?.refreshTelegramChat(
+                        remoteChatID: remoteChatID,
+                        successAnnouncement: "Document sent to \(chat.title)."
+                    )
+                    await self?.scheduleTelegramOverviewRefresh(delayNanoseconds: 150_000_000)
+                } catch {
+                    await self?.handleTelegramFailure(error, fallbackState: .waitingForPhone)
+                }
+            }
+            return
+        }
+
+        appendOutgoingMessage(
+            text: description,
+            kind: .document(
+                description: description,
+                fileName: fileName.isEmpty ? nil : fileName
+            ),
+            to: chatID
+        )
+        announce("Document sent to \(chat.title).")
     }
 
     func jumpToFirstUnreadChat() -> Chat? {
@@ -366,7 +432,15 @@ final class UniOSAppModel: ObservableObject {
     }
 
     func call(_ personName: String) {
-        announce("Calling \(personName).")
+        startCall(personName: personName, telegramUserID: nil, isVideo: false)
+    }
+
+    func call(_ contact: Contact, isVideo: Bool = false) {
+        startCall(personName: contact.name, telegramUserID: contact.telegramUserID, isVideo: isVideo)
+    }
+
+    func call(_ entry: CallLog) {
+        startCall(personName: entry.personName, telegramUserID: entry.telegramUserID, isVideo: entry.isVideo)
     }
 
     func startChat(with contact: Contact, completion: @escaping (UUID?) -> Void) {
@@ -495,8 +569,10 @@ final class UniOSAppModel: ObservableObject {
 
         do {
             let profile = try await telegramService.loadCurrentProfile()
-            let loadedChats = try await telegramService.loadChats(limit: 40, currentUserDisplayName: profile.displayName)
-            let loadedContacts = try await telegramService.loadContacts(limit: 40)
+            async let loadedChats = telegramService.loadChats(limit: 40, currentUserDisplayName: profile.displayName)
+            async let loadedContacts = telegramService.loadContacts(limit: 40)
+            async let loadedCalls = telegramService.loadCallLogs(limit: 40, onlyMissed: false)
+            let (resolvedChats, resolvedContacts, resolvedCalls) = try await (loadedChats, loadedContacts, loadedCalls)
 
             telegramProfile = profile
             signInName = profile.displayName
@@ -509,12 +585,12 @@ final class UniOSAppModel: ObservableObject {
             signInPassword = ""
             sessionSource = .telegram
             telegramSignInState = .ready
-            chats = mergeTelegramChatsPreservingLoadedMessages(loadedChats)
-            contacts = loadedContacts
-            calls = []
+            chats = mergeTelegramChatsPreservingLoadedMessages(resolvedChats)
+            contacts = resolvedContacts
+            calls = resolvedCalls
             isAuthenticated = true
             selectedTab = .chats
-            announce("\(profile.displayName) signed in via Telegram. \(loadedChats.count) conversations synced.")
+            announce("\(profile.displayName) signed in via Telegram. \(resolvedChats.count) conversations synced.")
         } catch {
             await handleTelegramFailure(error, fallbackState: .waitingForPhone)
         }
@@ -546,11 +622,13 @@ final class UniOSAppModel: ObservableObject {
         }
 
         do {
-            let loadedChats = try await telegramService.loadChats(limit: 40, currentUserDisplayName: profile.displayName)
-            let loadedContacts = try await telegramService.loadContacts(limit: 40)
-            chats = mergeTelegramChatsPreservingLoadedMessages(loadedChats)
-            contacts = loadedContacts
-            calls = []
+            async let loadedChats = telegramService.loadChats(limit: 40, currentUserDisplayName: profile.displayName)
+            async let loadedContacts = telegramService.loadContacts(limit: 40)
+            async let loadedCalls = telegramService.loadCallLogs(limit: 40, onlyMissed: false)
+            let (resolvedChats, resolvedContacts, resolvedCalls) = try await (loadedChats, loadedContacts, loadedCalls)
+            chats = mergeTelegramChatsPreservingLoadedMessages(resolvedChats)
+            contacts = resolvedContacts
+            calls = resolvedCalls
         } catch {
             announce(userFacingMessage(for: error))
         }
@@ -666,6 +744,70 @@ final class UniOSAppModel: ObservableObject {
         var chat = chats[index]
         update(&chat)
         chats[index] = chat
+    }
+
+    private func appendOutgoingMessage(text: String, kind: MessageKind, to chatID: UUID) {
+        mutateChat(chatID) { chat in
+            let message = Message(
+                id: UUID(),
+                sender: profileName,
+                text: text,
+                timestamp: Date(),
+                direction: .outgoing,
+                status: .sent,
+                kind: kind
+            )
+            chat.messages.append(message)
+            chat.summary = text
+            chat.lastUpdated = message.timestamp
+            chat.unreadCount = 0
+        }
+    }
+
+    private func startCall(personName: String, telegramUserID: Int64?, isVideo: Bool) {
+        let callKind = isVideo ? "video call" : "call"
+
+        if sessionSource == .telegram {
+            guard let telegramUserID, let telegramService else {
+                announce("Telegram \(callKind) start is available only for direct contacts in this build.")
+                return
+            }
+
+            announce("Starting \(callKind) with \(personName).")
+
+            Task { [weak self] in
+                do {
+                    _ = try await telegramService.startCall(to: telegramUserID, isVideo: isVideo)
+                    await self?.scheduleTelegramOverviewRefresh(delayNanoseconds: 1_000_000_000)
+                    await MainActor.run {
+                        self?.announce("Telegram \(callKind) requested for \(personName). Continue the connection in Telegram.")
+                    }
+                } catch {
+                    await MainActor.run {
+                        guard let self else {
+                            return
+                        }
+                        self.announce(self.userFacingMessage(for: error))
+                    }
+                }
+            }
+            return
+        }
+
+        calls.insert(
+            CallLog(
+                id: UUID(),
+                personName: personName,
+                direction: .outgoing,
+                time: Date(),
+                durationDescription: "Connecting",
+                note: isVideo ? "Video call started from the demo workspace." : "Audio call started from the demo workspace.",
+                isVideo: isVideo,
+                telegramUserID: telegramUserID
+            ),
+            at: 0
+        )
+        announce("Starting \(callKind) with \(personName).")
     }
 
     private func userFacingMessage(for error: any Swift.Error) -> String {

@@ -70,14 +70,57 @@ struct MessageBubbleView: View {
             }
 
         case let .photo(description):
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Photo attachment", systemImage: "photo.fill")
-                    .font(.subheadline.weight(.semibold))
-                if !compactMediaDescriptions {
-                    Text(description)
-                }
+            attachmentCard(
+                title: "Photo attachment",
+                systemImage: "photo.fill",
+                primaryText: compactMediaDescriptions ? nil : description
+            )
+
+        case let .document(description, fileName):
+            attachmentCard(
+                title: "Document",
+                systemImage: "doc.fill",
+                primaryText: compactMediaDescriptions ? nil : description,
+                secondaryText: compactMediaDescriptions ? nil : fileName
+            )
+
+        case let .audio(description, durationSeconds):
+            attachmentCard(
+                title: durationSeconds.map { "Audio attachment · \($0)s" } ?? "Audio attachment",
+                systemImage: "waveform",
+                primaryText: compactMediaDescriptions ? nil : description
+            )
+
+        case let .video(description, durationSeconds):
+            attachmentCard(
+                title: durationSeconds.map { "Video attachment · \($0)s" } ?? "Video attachment",
+                systemImage: "video.fill",
+                primaryText: compactMediaDescriptions ? nil : description
+            )
+        }
+    }
+
+    private func attachmentCard(
+        title: String,
+        systemImage: String,
+        primaryText: String?,
+        secondaryText: String? = nil
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+
+            if let primaryText, !primaryText.isEmpty {
+                Text(primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let secondaryText, !secondaryText.isEmpty {
+                Text(secondaryText)
+                    .font(.caption)
+                    .foregroundStyle(UniOSTheme.quietText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 }
-
