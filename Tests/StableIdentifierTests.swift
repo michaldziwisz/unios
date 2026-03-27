@@ -4,15 +4,15 @@ import XCTest
 final class StableIdentifierTests: XCTestCase {
     func testChatUUIDIsDeterministic() {
         XCTAssertEqual(
-            StableIdentifier.chatUUID(for: 123456789),
-            StableIdentifier.chatUUID(for: 123456789)
+            StableIdentifier.chatUUID(for: Int64(123456789)),
+            StableIdentifier.chatUUID(for: Int64(123456789))
         )
     }
 
     func testMessageUUIDDiffersPerMessage() {
         XCTAssertNotEqual(
-            StableIdentifier.messageUUID(chatID: 100, messageID: 1),
-            StableIdentifier.messageUUID(chatID: 100, messageID: 2)
+            StableIdentifier.messageUUID(chatID: Int64(100), messageID: Int64(1)),
+            StableIdentifier.messageUUID(chatID: Int64(100), messageID: Int64(2))
         )
     }
 }
