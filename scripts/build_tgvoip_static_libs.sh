@@ -46,7 +46,10 @@ copy_library() {
   local output_dir="$2"
   local library_path
 
-  "$BAZEL_BIN" build --cpu="$cpu" //submodules/TgVoipWebrtc:TgVoipWebrtc
+  (
+    cd "$WORK_DIR"
+    "$BAZEL_BIN" build --cpu="$cpu" //submodules/TgVoipWebrtc:TgVoipWebrtc
+  )
   library_path="$(find "$WORK_DIR/bazel-bin" -path '*submodules/TgVoipWebrtc*' -name 'libTgVoipWebrtc.a' -print -quit)"
   if [[ -z "$library_path" ]]; then
     echo "Unable to locate libTgVoipWebrtc.a for cpu=$cpu." >&2
