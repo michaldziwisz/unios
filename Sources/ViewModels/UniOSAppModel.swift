@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 final class UniOSAppModel: ObservableObject {
@@ -74,6 +77,13 @@ final class UniOSAppModel: ObservableObject {
 
     var canUseTelegram: Bool {
         telegramService != nil
+    }
+
+    var canDisplayActiveCallVideo: Bool {
+        guard let activeCallSession else {
+            return false
+        }
+        return sessionSource == .telegram && activeCallSession.isVideo && activeCallSession.nativeMediaEngineReady
     }
 
     var filteredChats: [Chat] {
@@ -683,6 +693,11 @@ final class UniOSAppModel: ObservableObject {
             session.connectedAt = session.connectedAt ?? .now
             session.lastUpdatedAt = .now
             session.nativeMediaEngineReady = true
+            session.mediaTransportState = .connected
+            session.speakerEnabled = true
+            if session.isVideo {
+                session.localVideoEnabled = true
+            }
         }
         announce("Call connected.")
     }
@@ -723,6 +738,8 @@ final class UniOSAppModel: ObservableObject {
                 needsDebugLog: false
             )
             session.lastUpdatedAt = .now
+            session.mediaTransportState = .stopped
+            session.nativeMediaEngineReady = false
         }
         announce("Call ended.")
     }
@@ -735,6 +752,103 @@ final class UniOSAppModel: ObservableObject {
         activeCallSession = nil
         announce("Call summary dismissed.")
     }
+
+    func toggleActiveCallMuted() {
+        guard let activeCallSession else {
+            return
+        }
+
+        let nextValue = !activeCallSession.isMuted
+        if sessionSource == .telegram, let telegramService {
+            telegramService.setCallMuted(callID: activeCallSession.id, isMuted: nextValue)
+            updateActiveCallSession { session in
+                session.isMuted = nextValue
+            }
+            announce(nextValue ? "Microphone muted." : "Microphone unmuted.")
+            return
+        }
+
+        updateActiveCallSession { session in
+            session.isMuted = nextValue
+        }
+        announce(nextValue ? "Microphone muted." : "Microphone unmuted.")
+    }
+
+    func toggleActiveCallSpeaker() {
+        guard let activeCallSession else {
+            return
+        }
+
+        let nextValue = !activeCallSession.speakerEnabled
+        if sessionSource == .telegram, let telegramService {
+            telegramService.setCallSpeakerEnabled(callID: activeCallSession.id, isEnabled: nextValue)
+            updateActiveCallSession { session in
+                session.speakerEnabled = nextValue
+            }
+            announce(nextValue ? "Speaker enabled." : "Speaker disabled.")
+            return
+        }
+
+        updateActiveCallSession { session in
+            session.speakerEnabled = nextValue
+        }
+        announce(nextValue ? "Speaker enabled." : "Speaker disabled.")
+    }
+
+    func toggleActiveCallVideo() {
+        guard let activeCallSession, activeCallSession.isVideo else {
+            return
+        }
+
+        let nextValue = !activeCallSession.localVideoEnabled
+        if sessionSource == .telegram, let telegramService {
+            telegramService.setCallVideoEnabled(callID: activeCallSession.id, isEnabled: nextValue)
+            updateActiveCallSession { session in
+                session.localVideoEnabled = nextValue
+            }
+            announce(nextValue ? "Camera enabled." : "Camera paused.")
+            return
+        }
+
+        updateActiveCallSession { session in
+            session.localVideoEnabled = nextValue
+        }
+        announce(nextValue ? "Camera enabled." : "Camera paused.")
+    }
+
+#if canImport(UIKit)
+    func makeActiveCallIncomingVideoView(completion: @escaping (UIView?) -> Void) {
+        guard
+            sessionSource == .telegram,
+            let activeCallSession,
+            let telegramService
+        else {
+            completion(nil)
+            return
+        }
+
+        telegramService.makeIncomingCallVideoView(
+            callID: activeCallSession.id,
+            completion: completion
+        )
+    }
+
+    func makeActiveCallOutgoingVideoView(completion: @escaping (UIView?) -> Void) {
+        guard
+            sessionSource == .telegram,
+            let activeCallSession,
+            let telegramService
+        else {
+            completion(nil)
+            return
+        }
+
+        telegramService.makeOutgoingCallVideoView(
+            callID: activeCallSession.id,
+            completion: completion
+        )
+    }
+#endif
 
     func startChat(with contact: Contact, completion: @escaping (UUID?) -> Void) {
         if sessionSource == .telegram, let userID = contact.telegramUserID, let telegramService {
@@ -1106,7 +1220,8 @@ final class UniOSAppModel: ObservableObject {
                             phase: .requesting,
                             startedAt: .now,
                             lastUpdatedAt: .now,
-                            nativeMediaEngineReady: false
+                            nativeMediaEngineReady: false,
+                            mediaTransportState: .initializing
                         )
                         self.selectedTab = .calls
                         self.announce("Telegram \(callKind) requested for \(personName). Call controls are available in UniOS.")
@@ -1133,7 +1248,10 @@ final class UniOSAppModel: ObservableObject {
             startedAt: .now,
             connectedAt: .now,
             lastUpdatedAt: .now,
-            nativeMediaEngineReady: true
+            nativeMediaEngineReady: true,
+            mediaTransportState: .connected,
+            speakerEnabled: true,
+            localVideoEnabled: isVideo
         )
 
         calls.insert(

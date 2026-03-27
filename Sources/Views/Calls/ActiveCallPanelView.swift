@@ -29,10 +29,51 @@ struct ActiveCallPanelView: View {
                     Spacer()
                 }
 
+                if session.isVideo && appModel.canDisplayActiveCallVideo {
+                    ActiveCallVideoStageView(session: session)
+                }
+
                 Text(session.mediaEngineSummary)
                     .font(.subheadline)
                     .foregroundStyle(UniOSTheme.quietText)
                     .accessibilityHint("This explains whether UniOS is carrying the media stream itself or only the Telegram call lifecycle.")
+
+                if session.canToggleMute || session.canToggleSpeaker || session.canToggleLocalVideo {
+                    HStack(spacing: 10) {
+                        if session.canToggleMute {
+                            Button {
+                                appModel.toggleActiveCallMuted()
+                            } label: {
+                                Label(session.isMuted ? "Unmute" : "Mute", systemImage: session.isMuted ? "mic.slash.fill" : "mic.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityHint(session.isMuted ? "Turns the microphone back on." : "Mutes your microphone for the active Telegram call.")
+                        }
+
+                        if session.canToggleSpeaker {
+                            Button {
+                                appModel.toggleActiveCallSpeaker()
+                            } label: {
+                                Label(session.speakerEnabled ? "Use Receiver" : "Use Speaker", systemImage: session.speakerEnabled ? "speaker.wave.3.fill" : "speaker.slash.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityHint(session.speakerEnabled ? "Routes the call away from speakerphone." : "Routes the call to speakerphone.")
+                        }
+
+                        if session.canToggleLocalVideo {
+                            Button {
+                                appModel.toggleActiveCallVideo()
+                            } label: {
+                                Label(session.localVideoEnabled ? "Pause Camera" : "Resume Camera", systemImage: session.localVideoEnabled ? "video.fill" : "video.slash.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityHint(session.localVideoEnabled ? "Pauses your camera for the active Telegram call." : "Turns your camera back on for the active Telegram call.")
+                        }
+                    }
+                }
 
                 DisclosureGroup(showsDetails ? "Hide Technical Details" : "Show Technical Details", isExpanded: $showsDetails) {
                     VStack(alignment: .leading, spacing: 8) {

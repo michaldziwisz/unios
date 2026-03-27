@@ -448,6 +448,15 @@ struct ActiveCallSession: Identifiable, Hashable {
     var serverSummary: String? = nil
     var customParametersAvailable = false
     var nativeMediaEngineReady = false
+    var mediaTransportState: TelegramCallMediaTransportState = .unavailable(
+        reason: "Telegram media transport is not embedded in this build."
+    )
+    var isMuted = false
+    var speakerEnabled = false
+    var localVideoEnabled = false
+    var remoteVideoState: TelegramCallRemoteVideoState = .inactive
+    var remoteAudioMuted = false
+    var signalBars: Int? = nil
 
     var title: String {
         if phase.isTerminal {
@@ -478,17 +487,51 @@ struct ActiveCallSession: Identifiable, Hashable {
     }
 
     var signalingSummary: String {
-        guard signalingPacketCount > 0 else {
-            return "No signaling packets received yet."
+        var segments: [String] = []
+
+        if let signalBars {
+            segments.append("Signal bars \(signalBars)")
         }
-        return "\(signalingPacketCount) signaling packet\(signalingPacketCount == 1 ? "" : "s"), \(signalingByteCount) bytes."
+
+        guard signalingPacketCount > 0 else {
+            segments.append("No signaling packets received yet.")
+            return segments.joined(separator: ". ")
+        }
+
+        segments.append("\(signalingPacketCount) signaling packet\(signalingPacketCount == 1 ? "" : "s"), \(signalingByteCount) bytes")
+        return segments.joined(separator: ". ")
     }
 
     var mediaEngineSummary: String {
         if nativeMediaEngineReady {
-            return "Native Telegram media engine is ready."
+            var segments = [mediaTransportState.summary]
+            if isMuted {
+                segments.append("Microphone muted")
+            }
+            if speakerEnabled {
+                segments.append("Speaker route enabled")
+            }
+            if isVideo {
+                segments.append(localVideoEnabled ? "Local video enabled" : "Local video paused")
+                segments.append(remoteVideoState.summary)
+            }
+            if remoteAudioMuted {
+                segments.append("Remote microphone muted")
+            }
+            return segments.joined(separator: ". ")
         }
-        return "Telegram call signaling is active. Native TgVoipWebrtc media transport is not embedded in this build yet."
+        return mediaTransportState.summary
+    }
+
+    var mediaControlsSummary: String {
+        var segments: [String] = []
+        segments.append(isMuted ? "Muted" : "Unmuted")
+        segments.append(speakerEnabled ? "Speaker on" : "Speaker off")
+        if isVideo {
+            segments.append(localVideoEnabled ? "Camera on" : "Camera off")
+            segments.append(remoteVideoState.summary)
+        }
+        return segments.joined(separator: ", ")
     }
 
     var canAccept: Bool {
@@ -508,6 +551,18 @@ struct ActiveCallSession: Identifiable, Hashable {
         }
     }
 
+    var canToggleMute: Bool {
+        !phase.isTerminal && nativeMediaEngineReady
+    }
+
+    var canToggleSpeaker: Bool {
+        !phase.isTerminal
+    }
+
+    var canToggleLocalVideo: Bool {
+        !phase.isTerminal && isVideo && nativeMediaEngineReady
+    }
+
     var accessibilitySummary: String {
         var segments: [String] = [
             peerName,
@@ -525,6 +580,7 @@ struct ActiveCallSession: Identifiable, Hashable {
 
         segments.append(signalingSummary)
         segments.append(mediaEngineSummary)
+        segments.append(mediaControlsSummary)
         return segments.joined(separator: ". ")
     }
 }

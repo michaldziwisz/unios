@@ -29,6 +29,9 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Install Bazelisk
+        run: brew install bazelisk
+
       - name: Generate Telegram secrets xcconfig
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
@@ -42,6 +45,13 @@ jobs:
           else
             echo "Telegram API credentials are not configured for CI. Building with demo fallback."
           fi
+
+      - name: Build TgVoipWebrtc static libraries
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build_tgvoip_static_libs.sh
+          chmod +x scripts/generate_voip_engine_xcconfig.sh
+          ./scripts/build_tgvoip_static_libs.sh
 
       - name: Generate Xcode project
         run: xcodegen generate

@@ -3,3 +3,4 @@ TELEGRAM_API_HASH =
 TELEGRAM_USE_TEST_DC = NO
 
 #include? "TelegramSecrets.xcconfig"
+#include? "VoIPEngine.xcconfig"

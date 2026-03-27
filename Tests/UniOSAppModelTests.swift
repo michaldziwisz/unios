@@ -151,6 +151,30 @@ final class UniOSAppModelTests: XCTestCase {
     }
 
     @MainActor
+    func testDemoCallControlsToggleMuteSpeakerAndCamera() {
+        let model = UniOSAppModel(seed: .preview)
+        let contact = model.contacts.first ?? Contact(
+            id: UUID(),
+            name: "Test Contact",
+            role: "Demo",
+            presence: .online,
+            isFavorite: false,
+            avatarHue: 0.2,
+            note: "Demo",
+            telegramUserID: nil
+        )
+
+        model.call(contact, isVideo: true)
+        model.toggleActiveCallMuted()
+        model.toggleActiveCallSpeaker()
+        model.toggleActiveCallVideo()
+
+        XCTAssertEqual(model.activeCallSession?.isMuted, true)
+        XCTAssertEqual(model.activeCallSession?.speakerEnabled, false)
+        XCTAssertEqual(model.activeCallSession?.localVideoEnabled, false)
+    }
+
+    @MainActor
     func testMarkChatReadClearsUnreadCount() throws {
         let model = UniOSAppModel(seed: .preview)
         let unreadChatID = try XCTUnwrap(model.chats.first(where: { $0.unreadCount > 0 })?.id)

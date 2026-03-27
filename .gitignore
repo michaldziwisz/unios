@@ -6,3 +6,5 @@ UniOS.xcodeproj/
 *.ipa
 *.xcresult
 Config/TelegramSecrets.xcconfig
+Config/VoIPEngine.xcconfig
+Vendor/

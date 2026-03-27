@@ -34,14 +34,22 @@ The current build keeps a demo workspace and also includes a real Telegram bridg
 
 This writes `Config/TelegramSecrets.xcconfig`, which is ignored by git.
 
-3. Generate the project:
+3. Build the Telegram native VoIP static libraries and generate the VoIP xcconfig:
+
+```bash
+./scripts/build_tgvoip_static_libs.sh
+```
+
+This writes `Config/VoIPEngine.xcconfig` and fills `Vendor/TgVoip/` with the static iOS libraries and public headers generated from the official `Telegram-iOS` Bazel toolchain.
+
+4. Generate the project:
 
 ```bash
 xcodegen generate
 open UniOS.xcodeproj
 ```
 
-If the Telegram credentials are not present, UniOS still builds and runs in demo mode.
+If the Telegram credentials are not present, UniOS still builds and runs in demo mode. If the VoIP engine is not built, UniOS falls back to lifecycle-only Telegram call controls.
 
 ## Telegram Integration
 
@@ -69,34 +77,32 @@ The `TDLibKit` path currently covers:
 - incoming and outgoing call lifecycle updates through TDLib
 - answering, declining, and ending 1:1 Telegram calls from the in-app call panel
 - exposing encryption emoji, server summary, and signaling activity for active calls
+- full in-call audio transport through Telegram's native `TgVoipWebrtc` engine when the VoIP static libraries are built
+- in-app mute, speaker, and camera controls backed by the native Telegram media engine
+- in-app remote and local video rendering for Telegram video calls
 
 Still intentionally incomplete:
 
-- full in-call audio and video media transport inside UniOS after Telegram accepts a call
-- speaker, microphone, camera, and route management backed by Telegram's native TgVoipWebrtc engine
-- mute/unmute sync
+- advanced Bluetooth and input-device selection beyond the default speaker / receiver route controls
 - native Apple ID / Google ID auth tokens for the email branch
 - registration
 - production signing and App Store distribution
 
 ## Calls Architecture Note
 
-UniOS now handles the Telegram call lifecycle with `TDLibKit`: it can request a call,
-surface incoming-call state, and send accept/decline/end actions back to Telegram.
-What it does not yet embed is Telegram's native media engine.
-
-The missing piece is the `TgVoipWebrtc` stack used by Telegram iOS. That engine is not
-available as a simple standalone Swift Package; in practice it is built through the
-Telegram iOS/Bazel toolchain with large vendored dependencies such as WebRTC,
-BoringSSL, FFmpeg, rnnoise, libyuv, and other native components. Until that stack is
-ported into UniOS, active calls expose lifecycle state and signaling metadata, but the
-audio/video stream itself is not rendered or captured inside the app.
+UniOS now handles the Telegram call lifecycle with `TDLibKit` and embeds Telegram's
+native `TgVoipWebrtc` stack for 1:1 calls when the static libraries are built. The
+native engine is sourced from the official `TelegramMessenger/Telegram-iOS` repository
+and compiled through Bazel on a macOS runner, because it is not distributed as a small
+standalone Swift Package. The generated static libraries are then linked into UniOS
+through `Config/VoIPEngine.xcconfig`.
 
 ## CI
 
 The GitHub Actions workflow:
 
 - optionally generates `Config/TelegramSecrets.xcconfig` from repository secrets
+- builds `TgVoipWebrtc` static libraries from the official `Telegram-iOS` sources on a GitHub-hosted macOS runner
 - installs XcodeGen on a GitHub-hosted macOS runner
 - generates the Xcode project
 - runs unit tests on an available iPhone simulator

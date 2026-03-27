@@ -126,7 +126,7 @@ protocol TelegramServiceDelegate: AnyObject {
 }
 
 final class TelegramService {
-    private static let supportedCallVersions = ["2.4.4"]
+    private static let supportedCallVersions = TelegramCallMediaEngine.supportedLibraryVersions
 
     weak var delegate: (any TelegramServiceDelegate)?
 
@@ -134,6 +134,7 @@ final class TelegramService {
     private let manager: TDLibClientManager
     private let client: TDLibClient
     private var activeCalls: [Int: ActiveCallSession] = [:]
+    private var mediaEngines: [Int: TelegramCallMediaEngine] = [:]
 
     init(configuration: TelegramAppConfiguration) {
         final class UpdateRelay {
@@ -156,6 +157,7 @@ final class TelegramService {
     }
 
     deinit {
+        mediaEngines.values.forEach { $0.stop() }
         manager.closeClients()
     }
 
@@ -489,8 +491,7 @@ final class TelegramService {
     }
 
     func endCall(callID: Int, duration: Int, isDisconnected: Bool, isVideo: Bool) async throws {
-        // Without an embedded media engine the app doesn't negotiate a concrete relay,
-        // so teardown falls back to a lifecycle-only discard with connectionId 0.
+        mediaEngines[callID]?.beginTermination()
         _ = try await client.discardCall(
             callId: callID,
             connectionId: 0,
@@ -500,6 +501,45 @@ final class TelegramService {
             isVideo: isVideo
         )
     }
+
+    func setCallMuted(callID: Int, isMuted: Bool) {
+        mediaEngines[callID]?.setMuted(isMuted)
+        mutateActiveCallSession(callID: callID) { session in
+            session.isMuted = isMuted
+        }
+    }
+
+    func setCallSpeakerEnabled(callID: Int, isEnabled: Bool) {
+        mediaEngines[callID]?.setSpeakerEnabled(isEnabled)
+        mutateActiveCallSession(callID: callID) { session in
+            session.speakerEnabled = isEnabled
+        }
+    }
+
+    func setCallVideoEnabled(callID: Int, isEnabled: Bool) {
+        mediaEngines[callID]?.setLocalVideoEnabled(isEnabled)
+        mutateActiveCallSession(callID: callID) { session in
+            session.localVideoEnabled = isEnabled
+        }
+    }
+
+#if canImport(UIKit)
+    func makeIncomingCallVideoView(callID: Int, completion: @escaping (UIView?) -> Void) {
+        guard let engine = mediaEngines[callID] else {
+            completion(nil)
+            return
+        }
+        engine.makeIncomingVideoView(completion: completion)
+    }
+
+    func makeOutgoingCallVideoView(callID: Int, completion: @escaping (UIView?) -> Void) {
+        guard let engine = mediaEngines[callID] else {
+            completion(nil)
+            return
+        }
+        engine.makeOutgoingVideoView(completion: completion)
+    }
+#endif
 
     func markViewed(chatID: Int64, messageIDs: [Int64]) async {
         guard !messageIDs.isEmpty else {
@@ -586,6 +626,7 @@ final class TelegramService {
                 do {
                     let session = try await self.mapActiveCallSession(value.call)
                     self.activeCalls[value.call.id] = session
+                    self.updateMediaEngine(for: value.call)
                     self.notify(.callUpdated(session))
                 } catch {
                     let fallbackSession = ActiveCallSession(
@@ -599,6 +640,7 @@ final class TelegramService {
                         lastUpdatedAt: .now
                     )
                     self.activeCalls[value.call.id] = fallbackSession
+                    self.stopMediaEngine(callID: value.call.id)
                     self.notify(.callUpdated(fallbackSession))
                 }
             }
@@ -613,6 +655,7 @@ final class TelegramService {
                     return
                 }
 
+                self.mediaEngines[value.callId]?.addSignalingData(value.data)
                 session.signalingPacketCount += 1
                 session.signalingByteCount += value.data.count
                 session.lastUpdatedAt = .now
@@ -907,8 +950,91 @@ final class TelegramService {
             supportsGroupUpgrade: callSupportsGroupUpgrade(for: call.state),
             serverSummary: callServerSummary(for: call.state),
             customParametersAvailable: callHasCustomParameters(for: call.state),
-            nativeMediaEngineReady: false
+            nativeMediaEngineReady: previous?.nativeMediaEngineReady ?? false,
+            mediaTransportState: previous?.mediaTransportState ?? .unavailable(
+                reason: TelegramCallMediaEngine.isAvailable
+                    ? "Telegram media engine is waiting for transport parameters."
+                    : "Telegram call signaling is active. Native TgVoipWebrtc media transport is not embedded in this build yet."
+            ),
+            isMuted: previous?.isMuted ?? false,
+            speakerEnabled: previous?.speakerEnabled ?? false,
+            localVideoEnabled: previous?.localVideoEnabled ?? call.isVideo,
+            remoteVideoState: previous?.remoteVideoState ?? .inactive,
+            remoteAudioMuted: previous?.remoteAudioMuted ?? false,
+            signalBars: previous?.signalBars
         )
+    }
+
+    private func updateMediaEngine(for call: TDLibKit.Call) {
+        if case .callStateReady = call.state, TelegramCallMediaEngine.isAvailable {
+            let engine: TelegramCallMediaEngine
+            if let existing = mediaEngines[call.id] {
+                engine = existing
+            } else {
+                let newEngine = TelegramCallMediaEngine(
+                    callID: call.id,
+                    supportsVideo: call.isVideo
+                ) { [weak self] data in
+                    guard let self else {
+                        return
+                    }
+
+                    Task {
+                        try? await self.client.sendCallSignalingData(
+                            callId: call.id,
+                            data: data
+                        )
+                    }
+                }
+
+                newEngine.onStatusChanged = { [weak self] status in
+                    self?.applyMediaStatus(status, to: call.id)
+                }
+                mediaEngines[call.id] = newEngine
+                engine = newEngine
+            }
+
+            engine.configure(with: call)
+            return
+        }
+
+        if mappedCallPhase(for: call).isTerminal {
+            stopMediaEngine(callID: call.id)
+        }
+    }
+
+    private func applyMediaStatus(_ status: TelegramCallMediaStatus, to callID: Int) {
+        mutateActiveCallSession(callID: callID) { session in
+            session.nativeMediaEngineReady = status.nativeMediaEngineReady
+            session.mediaTransportState = status.transportState
+            session.isMuted = status.isMuted
+            session.speakerEnabled = status.speakerEnabled
+            session.localVideoEnabled = status.localVideoEnabled
+            session.remoteVideoState = status.remoteVideoState
+            session.remoteAudioMuted = status.remoteAudioMuted
+            session.signalBars = status.signalBars
+            session.lastUpdatedAt = .now
+        }
+    }
+
+    private func stopMediaEngine(callID: Int) {
+        mediaEngines.removeValue(forKey: callID)?.stop()
+        mutateActiveCallSession(callID: callID) { session in
+            session.nativeMediaEngineReady = false
+            session.mediaTransportState = .stopped
+            session.remoteVideoState = .inactive
+            session.localVideoEnabled = false
+        }
+    }
+
+    private func mutateActiveCallSession(callID: Int, update: (inout ActiveCallSession) -> Void) {
+        guard var session = activeCalls[callID] else {
+            return
+        }
+
+        update(&session)
+        activeCalls[callID] = session
+        notify(.callUpdated(session))
     }
 
     private func peerDisplayName(for userID: Int64) async throws -> String {
