@@ -17,6 +17,7 @@ final class UniOSAppModel: ObservableObject {
     @Published var contacts: [Contact]
     @Published var calls: [CallLog]
     @Published var accessibilityPreferences: AccessibilityPreferences
+    @Published private(set) var activeCallSession: ActiveCallSession?
     @Published private(set) var latestAnnouncement = ""
     @Published private(set) var sessionSource: SessionSource = .demo
     @Published private(set) var telegramSignInState: TelegramSignInState
@@ -90,6 +91,7 @@ final class UniOSAppModel: ObservableObject {
         calls = seed.calls
         sessionSource = .demo
         telegramProfile = nil
+        activeCallSession = nil
         isAuthenticated = true
         announce("\(profileName) signed in. \(filteredChats.count) conversations ready.")
     }
@@ -653,6 +655,87 @@ final class UniOSAppModel: ObservableObject {
         startCall(personName: entry.personName, telegramUserID: entry.telegramUserID, isVideo: entry.isVideo)
     }
 
+    func acceptActiveCall() {
+        guard let activeCallSession else {
+            return
+        }
+
+        if sessionSource == .telegram, let telegramService {
+            announce("Accepting call from \(activeCallSession.peerName).")
+
+            Task { [weak self] in
+                do {
+                    try await telegramService.acceptCall(callID: activeCallSession.id)
+                } catch {
+                    await MainActor.run {
+                        guard let self else {
+                            return
+                        }
+                        self.announce(self.userFacingMessage(for: error))
+                    }
+                }
+            }
+            return
+        }
+
+        updateActiveCallSession { session in
+            session.phase = .connected
+            session.connectedAt = session.connectedAt ?? .now
+            session.lastUpdatedAt = .now
+            session.nativeMediaEngineReady = true
+        }
+        announce("Call connected.")
+    }
+
+    func endActiveCall(isDisconnected: Bool = false) {
+        guard let activeCallSession else {
+            return
+        }
+
+        if sessionSource == .telegram, let telegramService {
+            let action = activeCallSession.canAccept ? "Declining" : "Ending"
+            announce("\(action) call with \(activeCallSession.peerName).")
+
+            Task { [weak self] in
+                do {
+                    try await telegramService.endCall(
+                        callID: activeCallSession.id,
+                        duration: self?.activeCallDurationSeconds(for: activeCallSession) ?? 0,
+                        isDisconnected: isDisconnected,
+                        isVideo: activeCallSession.isVideo
+                    )
+                } catch {
+                    await MainActor.run {
+                        guard let self else {
+                            return
+                        }
+                        self.announce(self.userFacingMessage(for: error))
+                    }
+                }
+            }
+            return
+        }
+
+        updateActiveCallSession { session in
+            session.phase = .ended(
+                reason: isDisconnected ? "Call disconnected" : "Call ended",
+                needsRating: false,
+                needsDebugLog: false
+            )
+            session.lastUpdatedAt = .now
+        }
+        announce("Call ended.")
+    }
+
+    func dismissActiveCallPanel() {
+        guard activeCallSession?.phase.isTerminal == true else {
+            return
+        }
+
+        activeCallSession = nil
+        announce("Call summary dismissed.")
+    }
+
     func startChat(with contact: Contact, completion: @escaping (UUID?) -> Void) {
         if sessionSource == .telegram, let userID = contact.telegramUserID, let telegramService {
             if let existing = chats.first(where: { $0.title == contact.name || $0.participants.contains(contact.name) }) {
@@ -760,6 +843,7 @@ final class UniOSAppModel: ObservableObject {
                 isAuthenticated = false
                 telegramProfile = nil
             }
+            activeCallSession = nil
             signInEmailAddress = ""
             signInEmailCode = ""
             signInVerificationCode = ""
@@ -798,6 +882,7 @@ final class UniOSAppModel: ObservableObject {
             chats = mergeTelegramChatsPreservingLoadedMessages(resolvedChats)
             contacts = resolvedContacts
             calls = resolvedCalls
+            activeCallSession = nil
             isAuthenticated = true
             selectedTab = .chats
             announce("\(profile.displayName) signed in via Telegram. \(resolvedChats.count) conversations synced.")
@@ -925,6 +1010,7 @@ final class UniOSAppModel: ObservableObject {
         isAuthenticated = false
         sessionSource = .demo
         telegramProfile = nil
+        activeCallSession = nil
         selectedTab = .chats
         selectedChatFolder = .all
         chatSearchText = ""
@@ -1005,10 +1091,25 @@ final class UniOSAppModel: ObservableObject {
 
             Task { [weak self] in
                 do {
-                    _ = try await telegramService.startCall(to: telegramUserID, isVideo: isVideo)
+                    let callID = try await telegramService.startCall(to: telegramUserID, isVideo: isVideo)
                     await self?.scheduleTelegramOverviewRefresh(delayNanoseconds: 1_000_000_000)
                     await MainActor.run {
-                        self?.announce("Telegram \(callKind) requested for \(personName). Continue the connection in Telegram.")
+                        guard let self else {
+                            return
+                        }
+                        self.activeCallSession = ActiveCallSession(
+                            id: callID,
+                            peerName: personName,
+                            peerUserID: telegramUserID,
+                            isOutgoing: true,
+                            isVideo: isVideo,
+                            phase: .requesting,
+                            startedAt: .now,
+                            lastUpdatedAt: .now,
+                            nativeMediaEngineReady: false
+                        )
+                        self.selectedTab = .calls
+                        self.announce("Telegram \(callKind) requested for \(personName). Call controls are available in UniOS.")
                     }
                 } catch {
                     await MainActor.run {
@@ -1021,6 +1122,19 @@ final class UniOSAppModel: ObservableObject {
             }
             return
         }
+
+        activeCallSession = ActiveCallSession(
+            id: Int.random(in: 1 ... Int.max),
+            peerName: personName,
+            peerUserID: telegramUserID,
+            isOutgoing: true,
+            isVideo: isVideo,
+            phase: .connected,
+            startedAt: .now,
+            connectedAt: .now,
+            lastUpdatedAt: .now,
+            nativeMediaEngineReady: true
+        )
 
         calls.insert(
             CallLog(
@@ -1036,6 +1150,41 @@ final class UniOSAppModel: ObservableObject {
             at: 0
         )
         announce("Starting \(callKind) with \(personName).")
+    }
+
+    private func storeActiveCallSession(_ session: ActiveCallSession) {
+        let previous = activeCallSession
+        activeCallSession = session
+
+        if session.phase == .incoming, previous?.id != session.id {
+            selectedTab = .calls
+            announce("Incoming \(session.isVideo ? "video" : "audio") call from \(session.peerName).")
+            return
+        }
+
+        if previous?.phase != session.phase {
+            announce("\(session.peerName). \(session.statusLabel).")
+
+            if sessionSource == .telegram, session.phase.isTerminal {
+                Task { [weak self] in
+                    await self?.scheduleTelegramOverviewRefresh(delayNanoseconds: 200_000_000)
+                }
+            }
+        }
+    }
+
+    private func updateActiveCallSession(_ update: (inout ActiveCallSession) -> Void) {
+        guard var activeCallSession else {
+            return
+        }
+
+        update(&activeCallSession)
+        self.activeCallSession = activeCallSession
+    }
+
+    private func activeCallDurationSeconds(for session: ActiveCallSession) -> Int {
+        let referenceDate = session.connectedAt ?? session.startedAt
+        return max(Int(Date().timeIntervalSince(referenceDate).rounded(.down)), 0)
     }
 
     private func userFacingMessage(for error: any Swift.Error) -> String {
@@ -1064,6 +1213,9 @@ extension UniOSAppModel: TelegramServiceDelegate {
             Task { [weak self] in
                 await self?.scheduleTelegramOverviewRefresh()
             }
+
+        case let .callUpdated(session):
+            storeActiveCallSession(session)
         }
     }
 }

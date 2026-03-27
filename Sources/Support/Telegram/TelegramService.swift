@@ -117,6 +117,7 @@ enum TelegramServiceEvent: Hashable {
     case authorizationChanged(TelegramSignInState)
     case chatsChanged
     case chatChanged(chatID: Int64)
+    case callUpdated(ActiveCallSession)
 }
 
 @MainActor
@@ -132,6 +133,7 @@ final class TelegramService {
     private let configuration: TelegramAppConfiguration
     private let manager: TDLibClientManager
     private let client: TDLibClient
+    private var activeCalls: [Int: ActiveCallSession] = [:]
 
     init(configuration: TelegramAppConfiguration) {
         final class UpdateRelay {
@@ -473,16 +475,30 @@ final class TelegramService {
     func startCall(to userID: Int64, isVideo: Bool) async throws -> Int {
         let callID = try await client.createCall(
             isVideo: isVideo,
-            protocol: CallProtocol(
-                libraryVersions: Self.supportedCallVersions,
-                maxLayer: 92,
-                minLayer: 65,
-                udpP2p: true,
-                udpReflector: true
-            ),
+            protocol: supportedCallProtocol(),
             userId: userID
         )
         return callID.id
+    }
+
+    func acceptCall(callID: Int) async throws {
+        _ = try await client.acceptCall(
+            callId: callID,
+            protocol: supportedCallProtocol()
+        )
+    }
+
+    func endCall(callID: Int, duration: Int, isDisconnected: Bool, isVideo: Bool) async throws {
+        // Without an embedded media engine the app doesn't negotiate a concrete relay,
+        // so teardown falls back to a lifecycle-only discard with connectionId 0.
+        _ = try await client.discardCall(
+            callId: callID,
+            connectionId: 0,
+            duration: max(duration, 0),
+            inviteLink: "",
+            isDisconnected: isDisconnected,
+            isVideo: isVideo
+        )
     }
 
     func markViewed(chatID: Int64, messageIDs: [Int64]) async {
@@ -560,6 +576,49 @@ final class TelegramService {
 
         case let .updateNewMessage(value):
             notify(.chatChanged(chatID: value.message.chatId))
+
+        case let .updateCall(value):
+            Task { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                do {
+                    let session = try await self.mapActiveCallSession(value.call)
+                    self.activeCalls[value.call.id] = session
+                    self.notify(.callUpdated(session))
+                } catch {
+                    let fallbackSession = ActiveCallSession(
+                        id: value.call.id,
+                        peerName: "Telegram call",
+                        peerUserID: value.call.userId,
+                        isOutgoing: value.call.isOutgoing,
+                        isVideo: value.call.isVideo,
+                        phase: .failed(message: self.userFacingMessage(for: error)),
+                        startedAt: .now,
+                        lastUpdatedAt: .now
+                    )
+                    self.activeCalls[value.call.id] = fallbackSession
+                    self.notify(.callUpdated(fallbackSession))
+                }
+            }
+
+        case let .updateNewCallSignalingData(value):
+            Task { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                guard var session = self.activeCalls[value.callId] else {
+                    return
+                }
+
+                session.signalingPacketCount += 1
+                session.signalingByteCount += value.data.count
+                session.lastUpdatedAt = .now
+                self.activeCalls[value.callId] = session
+                self.notify(.callUpdated(session))
+            }
 
         default:
             break
@@ -695,6 +754,16 @@ final class TelegramService {
         return "Enter the \(length)-character Telegram code sent to \(destination)."
     }
 
+    private func supportedCallProtocol() -> CallProtocol {
+        CallProtocol(
+            libraryVersions: Self.supportedCallVersions,
+            maxLayer: 92,
+            minLayer: 65,
+            udpP2p: true,
+            udpReflector: true
+        )
+    }
+
     private func mediaDimensions(from size: CGSize?) -> (width: Int, height: Int) {
         guard let size else {
             return (0, 0)
@@ -806,6 +875,152 @@ final class TelegramService {
             return performer
         }
         return nonEmptyText(fileName) ?? "Audio attachment"
+    }
+
+    private func mapActiveCallSession(_ call: TDLibKit.Call) async throws -> ActiveCallSession {
+        let peerName = try await peerDisplayName(for: call.userId)
+        let previous = activeCalls[call.id]
+        let phase = mappedCallPhase(for: call)
+        let now = Date()
+        let connectedAt: Date?
+        switch phase {
+        case .connected:
+            connectedAt = previous?.connectedAt ?? now
+        default:
+            connectedAt = previous?.connectedAt
+        }
+
+        return ActiveCallSession(
+            id: call.id,
+            peerName: peerName,
+            peerUserID: call.userId,
+            isOutgoing: call.isOutgoing,
+            isVideo: call.isVideo,
+            phase: phase,
+            startedAt: previous?.startedAt ?? now,
+            connectedAt: connectedAt,
+            lastUpdatedAt: now,
+            signalingPacketCount: previous?.signalingPacketCount ?? 0,
+            signalingByteCount: previous?.signalingByteCount ?? 0,
+            encryptionEmoji: callEncryptionEmoji(for: call.state),
+            allowsPeerToPeer: callAllowsPeerToPeer(for: call.state),
+            supportsGroupUpgrade: callSupportsGroupUpgrade(for: call.state),
+            serverSummary: callServerSummary(for: call.state),
+            customParametersAvailable: callHasCustomParameters(for: call.state),
+            nativeMediaEngineReady: false
+        )
+    }
+
+    private func peerDisplayName(for userID: Int64) async throws -> String {
+        let user = try await client.getUser(userId: userID)
+        return Self.displayName(for: user)
+    }
+
+    private func mappedCallPhase(for call: TDLibKit.Call) -> CallSessionPhase {
+        switch call.state {
+        case let .callStatePending(value):
+            if call.isOutgoing {
+                return value.isReceived ? .ringing : .requesting
+            }
+            return .incoming
+
+        case .callStateExchangingKeys:
+            return .exchangingKeys
+
+        case .callStateReady:
+            return .connected
+
+        case .callStateHangingUp:
+            return .ending
+
+        case let .callStateDiscarded(value):
+            return .ended(
+                reason: callDiscardReasonLabel(value.reason),
+                needsRating: value.needRating,
+                needsDebugLog: value.needDebugInformation || value.needLog
+            )
+
+        case let .callStateError(value):
+            let message = nonEmptyText(value.error.message) ?? "Telegram call failed."
+            return .failed(message: message)
+        }
+    }
+
+    private func callDiscardReasonLabel(_ reason: CallDiscardReason) -> String {
+        switch reason {
+        case .callDiscardReasonEmpty:
+            return "Call ended"
+        case .callDiscardReasonMissed:
+            return "Call missed"
+        case .callDiscardReasonDeclined:
+            return "Call declined"
+        case .callDiscardReasonDisconnected:
+            return "Call disconnected"
+        case .callDiscardReasonHungUp:
+            return "Call ended"
+        case .callDiscardReasonUpgradeToGroupCall:
+            return "Call upgraded to group call"
+        }
+    }
+
+    private func callEncryptionEmoji(for state: CallState) -> [String] {
+        guard case let .callStateReady(value) = state else {
+            return []
+        }
+        return value.emojis
+    }
+
+    private func callAllowsPeerToPeer(for state: CallState) -> Bool? {
+        guard case let .callStateReady(value) = state else {
+            return nil
+        }
+        return value.allowP2p
+    }
+
+    private func callSupportsGroupUpgrade(for state: CallState) -> Bool {
+        guard case let .callStateReady(value) = state else {
+            return false
+        }
+        return value.isGroupCallSupported
+    }
+
+    private func callHasCustomParameters(for state: CallState) -> Bool {
+        guard case let .callStateReady(value) = state else {
+            return false
+        }
+        return !value.customParameters.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func callServerSummary(for state: CallState) -> String? {
+        guard case let .callStateReady(value) = state else {
+            return nil
+        }
+
+        let reflectors = value.servers.filter {
+            if case .callServerTypeTelegramReflector = $0.type {
+                return true
+            }
+            return false
+        }.count
+
+        let webRtcServers = value.servers.filter {
+            if case .callServerTypeWebrtc = $0.type {
+                return true
+            }
+            return false
+        }.count
+
+        var segments: [String] = []
+        if reflectors > 0 {
+            segments.append("\(reflectors) Telegram reflector\(reflectors == 1 ? "" : "s")")
+        }
+        if webRtcServers > 0 {
+            segments.append("\(webRtcServers) WebRTC server\(webRtcServers == 1 ? "" : "s")")
+        }
+        if segments.isEmpty {
+            return value.servers.isEmpty ? "No call relays announced yet." : "\(value.servers.count) call server(s)"
+        }
+        return segments.joined(separator: ", ")
     }
 
     private func photoAttachment(from photo: Photo) -> MessageAttachment? {

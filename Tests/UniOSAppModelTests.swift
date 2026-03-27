@@ -98,6 +98,59 @@ final class UniOSAppModelTests: XCTestCase {
     }
 
     @MainActor
+    func testStartingDemoCallCreatesActiveCallSession() {
+        let model = UniOSAppModel(seed: .preview)
+        let contact = model.contacts.first ?? Contact(
+            id: UUID(),
+            name: "Test Contact",
+            role: "Demo",
+            presence: .online,
+            isFavorite: false,
+            avatarHue: 0.2,
+            note: "Demo",
+            telegramUserID: nil
+        )
+
+        model.call(contact)
+
+        XCTAssertEqual(model.activeCallSession?.peerName, contact.name)
+        XCTAssertEqual(model.activeCallSession?.phase, .connected)
+        XCTAssertEqual(model.activeCallSession?.nativeMediaEngineReady, true)
+    }
+
+    @MainActor
+    func testEndingDemoCallMarksActiveCallAsEnded() {
+        let model = UniOSAppModel(seed: .preview)
+        let contact = model.contacts.first ?? Contact(
+            id: UUID(),
+            name: "Test Contact",
+            role: "Demo",
+            presence: .online,
+            isFavorite: false,
+            avatarHue: 0.2,
+            note: "Demo",
+            telegramUserID: nil
+        )
+
+        model.call(contact)
+        model.endActiveCall()
+
+        guard let phase = model.activeCallSession?.phase else {
+            XCTFail("Expected an active call session.")
+            return
+        }
+
+        switch phase {
+        case let .ended(reason, needsRating, needsDebugLog):
+            XCTAssertEqual(reason, "Call ended")
+            XCTAssertFalse(needsRating)
+            XCTAssertFalse(needsDebugLog)
+        default:
+            XCTFail("Expected a terminal ended phase.")
+        }
+    }
+
+    @MainActor
     func testMarkChatReadClearsUnreadCount() throws {
         let model = UniOSAppModel(seed: .preview)
         let unreadChatID = try XCTUnwrap(model.chats.first(where: { $0.unreadCount > 0 })?.id)

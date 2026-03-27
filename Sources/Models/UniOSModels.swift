@@ -389,6 +389,146 @@ struct CallLog: Identifiable, Hashable {
     }
 }
 
+enum CallSessionPhase: Hashable {
+    case requesting
+    case incoming
+    case ringing
+    case exchangingKeys
+    case connected
+    case ending
+    case ended(reason: String, needsRating: Bool, needsDebugLog: Bool)
+    case failed(message: String)
+
+    var statusText: String {
+        switch self {
+        case .requesting:
+            return "Requesting call"
+        case .incoming:
+            return "Incoming call"
+        case .ringing:
+            return "Ringing"
+        case .exchangingKeys:
+            return "Exchanging encryption keys"
+        case .connected:
+            return "Connected"
+        case .ending:
+            return "Ending call"
+        case let .ended(reason, _, _):
+            return reason
+        case let .failed(message):
+            return message
+        }
+    }
+
+    var isTerminal: Bool {
+        switch self {
+        case .ended, .failed:
+            return true
+        case .requesting, .incoming, .ringing, .exchangingKeys, .connected, .ending:
+            return false
+        }
+    }
+}
+
+struct ActiveCallSession: Identifiable, Hashable {
+    let id: Int
+    var peerName: String
+    var peerUserID: Int64? = nil
+    var isOutgoing: Bool
+    var isVideo: Bool
+    var phase: CallSessionPhase
+    var startedAt: Date
+    var connectedAt: Date? = nil
+    var lastUpdatedAt: Date = .now
+    var signalingPacketCount = 0
+    var signalingByteCount = 0
+    var encryptionEmoji: [String] = []
+    var allowsPeerToPeer: Bool? = nil
+    var supportsGroupUpgrade = false
+    var serverSummary: String? = nil
+    var customParametersAvailable = false
+    var nativeMediaEngineReady = false
+
+    var title: String {
+        if phase.isTerminal {
+            return "\(isVideo ? "Video" : "Audio") call summary"
+        }
+        if phase == .incoming {
+            return "Incoming \(isVideo ? "video" : "audio") call"
+        }
+        return "\(isVideo ? "Video" : "Audio") call"
+    }
+
+    var statusLabel: String {
+        if phase == .connected {
+            return "Connected · \(elapsedLabel)"
+        }
+        return phase.statusText
+    }
+
+    var elapsedLabel: String {
+        let referenceDate = connectedAt ?? startedAt
+        let interval = max(Int(lastUpdatedAt.timeIntervalSince(referenceDate)), 0)
+        let minutes = interval / 60
+        let seconds = interval % 60
+        if minutes > 0 {
+            return String(format: "%d:%02d", minutes, seconds)
+        }
+        return "0:\(String(format: "%02d", seconds))"
+    }
+
+    var signalingSummary: String {
+        guard signalingPacketCount > 0 else {
+            return "No signaling packets received yet."
+        }
+        return "\(signalingPacketCount) signaling packet\(signalingPacketCount == 1 ? "" : "s"), \(signalingByteCount) bytes."
+    }
+
+    var mediaEngineSummary: String {
+        if nativeMediaEngineReady {
+            return "Native Telegram media engine is ready."
+        }
+        return "Telegram call signaling is active. Native TgVoipWebrtc media transport is not embedded in this build yet."
+    }
+
+    var canAccept: Bool {
+        phase == .incoming
+    }
+
+    var canDeclineOrEnd: Bool {
+        !phase.isTerminal
+    }
+
+    var needsAttention: Bool {
+        switch phase {
+        case .incoming, .failed:
+            return true
+        case .requesting, .ringing, .exchangingKeys, .connected, .ending, .ended:
+            return false
+        }
+    }
+
+    var accessibilitySummary: String {
+        var segments: [String] = [
+            peerName,
+            title,
+            statusLabel
+        ]
+
+        if !encryptionEmoji.isEmpty {
+            segments.append("Encryption emoji \(encryptionEmoji.joined(separator: " "))")
+        }
+
+        if let serverSummary, !serverSummary.isEmpty {
+            segments.append(serverSummary)
+        }
+
+        segments.append(signalingSummary)
+        segments.append(mediaEngineSummary)
+        return segments.joined(separator: ". ")
+    }
+}
+
 struct AccessibilityPreferences: Hashable {
     var announceUnreadMessages = true
     var speakMessageContext = true

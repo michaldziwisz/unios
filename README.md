@@ -66,15 +66,31 @@ The `TDLibKit` path currently covers:
 - loading Telegram contacts into the Contacts tab
 - loading Telegram call history into the Calls tab
 - best-effort outgoing audio and video call requests for direct Telegram contacts
+- incoming and outgoing call lifecycle updates through TDLib
+- answering, declining, and ending 1:1 Telegram calls from the in-app call panel
+- exposing encryption emoji, server summary, and signaling activity for active calls
 
 Still intentionally incomplete:
 
-- full in-call audio and video session handling inside UniOS after Telegram accepts a call
+- full in-call audio and video media transport inside UniOS after Telegram accepts a call
+- speaker, microphone, camera, and route management backed by Telegram's native TgVoipWebrtc engine
 - mute/unmute sync
-- incoming-call UI and ongoing-call controls backed by Telegram's native call engine
 - native Apple ID / Google ID auth tokens for the email branch
 - registration
 - production signing and App Store distribution
+
+## Calls Architecture Note
+
+UniOS now handles the Telegram call lifecycle with `TDLibKit`: it can request a call,
+surface incoming-call state, and send accept/decline/end actions back to Telegram.
+What it does not yet embed is Telegram's native media engine.
+
+The missing piece is the `TgVoipWebrtc` stack used by Telegram iOS. That engine is not
+available as a simple standalone Swift Package; in practice it is built through the
+Telegram iOS/Bazel toolchain with large vendored dependencies such as WebRTC,
+BoringSSL, FFmpeg, rnnoise, libyuv, and other native components. Until that stack is
+ported into UniOS, active calls expose lifecycle state and signaling metadata, but the
+audio/video stream itself is not rendered or captured inside the app.
 
 ## CI
 
