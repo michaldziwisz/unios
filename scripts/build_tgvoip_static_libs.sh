@@ -137,65 +137,25 @@ build_target_for_cpu() {
   )
 }
 
-resolve_archive_path() {
-  local archive_path="$1"
-  local candidate
-  local suffix="$archive_path"
-
-  if [[ -f "$WORK_DIR/$archive_path" ]]; then
-    printf '%s\n' "$WORK_DIR/$archive_path"
-    return 0
-  fi
-
-  case "$archive_path" in
-    bazel-out/*/bin/*)
-      suffix="${archive_path#bazel-out/*/bin/}"
-      candidate="$WORK_DIR/bazel-bin/$suffix"
-      if [[ -f "$candidate" ]]; then
-        printf '%s\n' "$candidate"
-        return 0
-      fi
-      ;;
-  esac
-
-  candidate="$(find -L "$WORK_DIR/bazel-bin" -path "*/$suffix" -type f -print -quit)"
-  if [[ -n "$candidate" ]]; then
-    printf '%s\n' "$candidate"
-    return 0
-  fi
-
-  return 1
-}
-
 bundle_archives_for_cpu() {
-  local cpu="$1"
+  local _cpu="$1"
   local output_dir="$2"
-  local platform_label
   local archive_output="$output_dir/libTgVoipWebrtc.a"
   local -a archives=()
   local archive_path
-  local resolved_path
-
-  platform_label="$(platform_label_for_cpu "$cpu")"
 
   while IFS= read -r archive_path; do
-    [[ "$archive_path" == *.a ]] || continue
-    if ! resolved_path="$(resolve_archive_path "$archive_path")"; then
-      echo "Skipping non-materialized archive path for $archive_path (cpu=$cpu)." >&2
-      continue
-    fi
-    archives+=("$resolved_path")
+    archives+=("$archive_path")
   done < <(
-    cd "$WORK_DIR"
-    USE_BAZEL_VERSION="$TELEGRAM_BAZEL_VERSION" "$BAZEL_BIN" cquery \
-      --cpu="$cpu" \
-      --platforms="$platform_label" \
-      "deps(//submodules/TgVoipWebrtc:TgVoipWebrtc)" \
-      --output=files | sort -u
+    find -L "$WORK_DIR/bazel-bin" \
+      \( -path "$WORK_DIR/bazel-bin/submodules/*" -o -path "$WORK_DIR/bazel-bin/third-party/*" \) \
+      -type f \
+      -name '*.a' \
+      | sort -u
   )
 
   if [[ ${#archives[@]} -eq 0 ]]; then
-    echo "Unable to locate transitive static archives for cpu=$cpu." >&2
+    echo "Unable to locate built static archives under bazel-bin." >&2
     exit 1
   fi
 
