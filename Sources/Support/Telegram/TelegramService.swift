@@ -143,6 +143,9 @@ protocol TelegramServiceDelegate: AnyObject {
 
 final class TelegramService {
     private static let supportedCallVersions = TelegramCallMediaEngine.supportedLibraryVersions
+    // Local TDLib databases are disabled for now because fresh sign-in on
+    // device is still crashing inside MessageDb/SQLite initialization.
+    private static let usesPersistentTdlibDatabases = false
 
     weak var delegate: (any TelegramServiceDelegate)?
 
@@ -195,6 +198,15 @@ final class TelegramService {
     func start() async throws -> TelegramSignInState {
         let state = try await client.getAuthorizationState()
         return try await applyAuthorizationState(state)
+    }
+
+    func destroyForFreshAuthentication() async throws {
+        mediaEngines.values.forEach { $0.stop() }
+        mediaEngines.removeAll()
+        activeCalls.removeAll()
+
+        _ = try await client.close()
+        hasConfiguredTDLibParameters = false
     }
 
     func submitPhoneNumber(_ phoneNumber: String) async throws {
@@ -889,9 +901,9 @@ final class TelegramService {
             filesDirectory: directories.filesDirectory.path,
             systemLanguageCode: Locale.current.language.languageCode?.identifier ?? Locale.current.identifier,
             systemVersion: operatingSystemVersion,
-            useChatInfoDatabase: true,
-            useFileDatabase: true,
-            useMessageDatabase: true,
+            useChatInfoDatabase: Self.usesPersistentTdlibDatabases,
+            useFileDatabase: Self.usesPersistentTdlibDatabases,
+            useMessageDatabase: Self.usesPersistentTdlibDatabases,
             useSecretChats: true,
             useTestDc: configuration.useTestDC
         )
