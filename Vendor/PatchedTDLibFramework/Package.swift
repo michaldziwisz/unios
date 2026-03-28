@@ -28,9 +28,5 @@ let package = Package(
             name: "TDLibFramework",
             path: "TDLibFramework.xcframework"
         ),
-        .testTarget(
-            name: "TDLibFrameworkTests",
-            dependencies: ["TDLibFrameworkWrapper"]
-        ),
     ]
 )
