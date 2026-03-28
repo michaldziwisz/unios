@@ -134,9 +134,6 @@ final class UniOSAppModel: ObservableObject {
                     return
                 }
                 let telegramService = try await self.prepareTelegramForPhoneAuthentication()
-                guard self.telegramSignInState.acceptsPhoneNumber || self.telegramSignInState == .waitingForPhone else {
-                    return
-                }
                 try await telegramService.submitPhoneNumber(phoneNumber)
             } catch {
                 await self?.handleTelegramFailure(error, fallbackState: .waitingForPhone)
@@ -163,9 +160,6 @@ final class UniOSAppModel: ObservableObject {
                     return
                 }
                 let telegramService = try await self.startTelegramSessionIfNeeded()
-                guard self.telegramSignInState.acceptsEmailAddress else {
-                    return
-                }
                 try await telegramService.submitEmailAddress(emailAddress)
             } catch {
                 await self?.handleTelegramFailure(
@@ -195,9 +189,6 @@ final class UniOSAppModel: ObservableObject {
                     return
                 }
                 let telegramService = try await self.startTelegramSessionIfNeeded()
-                guard self.telegramSignInState.acceptsEmailCode else {
-                    return
-                }
                 try await telegramService.submitEmailCode(code)
             } catch {
                 await self?.handleTelegramFailure(
@@ -231,9 +222,6 @@ final class UniOSAppModel: ObservableObject {
                     return
                 }
                 let telegramService = try await self.startTelegramSessionIfNeeded()
-                guard self.telegramSignInState.acceptsCode else {
-                    return
-                }
                 try await telegramService.submitCode(code)
             } catch {
                 await self?.handleTelegramFailure(error, fallbackState: .waitingForCode(message: "Enter the Telegram code."))
@@ -260,9 +248,6 @@ final class UniOSAppModel: ObservableObject {
                     return
                 }
                 let telegramService = try await self.startTelegramSessionIfNeeded()
-                guard self.telegramSignInState.acceptsPassword else {
-                    return
-                }
                 try await telegramService.submitPassword(password)
             } catch {
                 await self?.handleTelegramFailure(error, fallbackState: .waitingForPassword(hint: ""))

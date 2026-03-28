@@ -105,6 +105,22 @@ enum TelegramSignInState: Hashable {
         return false
     }
 
+    var isReady: Bool {
+        if case .ready = self {
+            return true
+        }
+        return false
+    }
+
+    var isFailure: Bool {
+        switch self {
+        case .failed, .unavailable:
+            return true
+        default:
+            return false
+        }
+    }
+
     var confirmationLink: String? {
         if case let .waitingForOtherDeviceConfirmation(_, link) = self {
             return link
@@ -181,6 +197,16 @@ final class TelegramService {
     }
 
     func submitPhoneNumber(_ phoneNumber: String) async throws {
+        let state = try await awaitAuthorizationState {
+            $0.acceptsPhoneNumber || $0.isReady || $0.isFailure
+        }
+        guard state.acceptsPhoneNumber else {
+            throw authorizationStateError(
+                for: state,
+                expectedActionDescription: "accept a phone number"
+            )
+        }
+
         let settings = PhoneNumberAuthenticationSettings(
             allowFlashCall: false,
             allowMissedCall: false,
@@ -194,10 +220,30 @@ final class TelegramService {
     }
 
     func submitEmailAddress(_ emailAddress: String) async throws {
+        let state = try await awaitAuthorizationState {
+            $0.acceptsEmailAddress || $0.isReady || $0.isFailure
+        }
+        guard state.acceptsEmailAddress else {
+            throw authorizationStateError(
+                for: state,
+                expectedActionDescription: "accept an email address"
+            )
+        }
+
         _ = try await client.setAuthenticationEmailAddress(emailAddress: emailAddress)
     }
 
     func submitEmailCode(_ code: String) async throws {
+        let state = try await awaitAuthorizationState {
+            $0.acceptsEmailCode || $0.isReady || $0.isFailure
+        }
+        guard state.acceptsEmailCode else {
+            throw authorizationStateError(
+                for: state,
+                expectedActionDescription: "accept an email code"
+            )
+        }
+
         let authentication = EmailAddressAuthentication.emailAddressAuthenticationCode(
             EmailAddressAuthenticationCode(code: code)
         )
@@ -205,10 +251,30 @@ final class TelegramService {
     }
 
     func submitCode(_ code: String) async throws {
+        let state = try await awaitAuthorizationState {
+            $0.acceptsCode || $0.isReady || $0.isFailure
+        }
+        guard state.acceptsCode else {
+            throw authorizationStateError(
+                for: state,
+                expectedActionDescription: "accept a verification code"
+            )
+        }
+
         _ = try await client.checkAuthenticationCode(code: code)
     }
 
     func submitPassword(_ password: String) async throws {
+        let state = try await awaitAuthorizationState {
+            $0.acceptsPassword || $0.isReady || $0.isFailure
+        }
+        guard state.acceptsPassword else {
+            throw authorizationStateError(
+                for: state,
+                expectedActionDescription: "accept a two-step verification password"
+            )
+        }
+
         _ = try await client.checkAuthenticationPassword(password: password)
     }
 
@@ -696,6 +762,59 @@ final class TelegramService {
         let mappedState = try await mapAuthorizationState(state)
         notify(.authorizationChanged(mappedState))
         return mappedState
+    }
+
+    private func awaitAuthorizationState(
+        timeoutNanoseconds: UInt64 = 15_000_000_000,
+        pollNanoseconds: UInt64 = 100_000_000,
+        until predicate: @escaping (TelegramSignInState) -> Bool
+    ) async throws -> TelegramSignInState {
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+
+        while true {
+            try Task.checkCancellation()
+
+            let rawState = try await client.getAuthorizationState()
+            let mappedState = try await applyAuthorizationState(rawState)
+
+            if predicate(mappedState) {
+                return mappedState
+            }
+
+            if DispatchTime.now().uptimeNanoseconds >= deadline {
+                let description = mappedState.statusMessage
+                throw NSError(
+                    domain: "UniOS.Telegram",
+                    code: 2,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "Telegram sign in did not reach the expected state in time. Last state: \(description)"
+                    ]
+                )
+            }
+
+            try await Task.sleep(nanoseconds: pollNanoseconds)
+        }
+    }
+
+    private func authorizationStateError(
+        for state: TelegramSignInState,
+        expectedActionDescription: String
+    ) -> NSError {
+        let description: String
+        switch state {
+        case .ready:
+            description = "Telegram restored an authenticated session instead of prompting for credentials."
+        case .failed, .unavailable:
+            description = state.statusMessage
+        default:
+            description = "Telegram did not reach a state that can \(expectedActionDescription). Current state: \(state.statusMessage)"
+        }
+
+        return NSError(
+            domain: "UniOS.Telegram",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: description]
+        )
     }
 
     private func mapAuthorizationState(_ state: AuthorizationState) async throws -> TelegramSignInState {
