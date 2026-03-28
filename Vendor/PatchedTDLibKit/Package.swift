@@ -21,12 +21,14 @@ let package = Package(
             targets: ["TDLibKit"]),
     ],
     dependencies: [
-        .package(path: "../PatchedTDLibFramework"),
+        .package(name: "PatchedTDLibFramework", path: "../PatchedTDLibFramework"),
     ],
     targets: [
         .target(
             name: "TDLibKit",
-            dependencies: ["TDLibFramework"]
+            dependencies: [
+                .product(name: "TDLibFramework", package: "PatchedTDLibFramework")
+            ]
         ),
     ]
 )
