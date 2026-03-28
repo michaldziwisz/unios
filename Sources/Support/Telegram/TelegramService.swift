@@ -156,6 +156,20 @@ final class TelegramService {
         }
     }
 
+    static func resetPersistentStorage(fileManager: FileManager = .default) throws {
+        let baseDirectory = try fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let tdlibRoot = baseDirectory.appendingPathComponent("TelegramTDLib", isDirectory: true)
+        guard fileManager.fileExists(atPath: tdlibRoot.path) else {
+            return
+        }
+        try fileManager.removeItem(at: tdlibRoot)
+    }
+
     deinit {
         mediaEngines.values.forEach { $0.stop() }
         manager.closeClients()

@@ -990,21 +990,10 @@ final class UniOSAppModel: ObservableObject {
     }
 
     private func prepareTelegramForPhoneAuthentication() async throws -> TelegramService {
+        telegramSignInState = .working(message: "Preparing a fresh Telegram sign-in session.")
+        try resetTelegramRuntimeStateForFreshAuthentication()
         let telegramService = try await startTelegramSessionIfNeeded()
-
-        guard telegramSignInState == .ready else {
-            return telegramService
-        }
-
-        telegramSignInState = .working(message: "Resetting the restored Telegram session.")
-        telegramProfile = nil
-        activeCallSession = nil
-
-        try await telegramService.logOut()
-        hasBootstrappedTelegramSession = false
-
-        let restartedService = try await startTelegramSessionIfNeeded()
-        return restartedService
+        return telegramService
     }
 
     private func ensureTelegramService() throws -> TelegramService {
@@ -1024,6 +1013,17 @@ final class UniOSAppModel: ObservableObject {
         telegramService.delegate = self
         self.telegramService = telegramService
         return telegramService
+    }
+
+    private func resetTelegramRuntimeStateForFreshAuthentication() throws {
+        telegramProfile = nil
+        activeCallSession = nil
+        chats = []
+        contacts = []
+        calls = []
+        hasBootstrappedTelegramSession = false
+        telegramService = nil
+        try TelegramService.resetPersistentStorage()
     }
 
     private func handleTelegramStateUpdate(_ newState: TelegramSignInState) {
