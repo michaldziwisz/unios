@@ -2,6 +2,7 @@ import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
+import TDLibKit
 
 @MainActor
 final class UniOSAppModel: ObservableObject {
@@ -31,6 +32,7 @@ final class UniOSAppModel: ObservableObject {
     private let telegramConfiguration: TelegramAppConfiguration?
     private var telegramService: TelegramService?
     private var hasBootstrappedTelegramSession = false
+    private var suppressReadyActivationWhilePreparingPhoneAuthentication = false
     private var overviewRefreshTask: Task<Void, Never>?
     private static let isRunningUnitTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
@@ -128,7 +130,11 @@ final class UniOSAppModel: ObservableObject {
         }
 
         telegramSignInState = .working(message: "Sending the Telegram phone number.")
-        Task { [weak self] in
+        suppressReadyActivationWhilePreparingPhoneAuthentication = true
+        Task { @MainActor [weak self] in
+            defer {
+                self?.suppressReadyActivationWhilePreparingPhoneAuthentication = false
+            }
             do {
                 guard let self else {
                     return
@@ -136,7 +142,10 @@ final class UniOSAppModel: ObservableObject {
                 let telegramService = try await self.prepareTelegramForPhoneAuthentication()
                 try await telegramService.submitPhoneNumber(phoneNumber)
             } catch {
-                await self?.handleTelegramFailure(error, fallbackState: .waitingForPhone)
+                guard let self else {
+                    return
+                }
+                await self.handleTelegramFailure(error, fallbackState: .waitingForPhone)
             }
         }
     }
@@ -975,12 +984,27 @@ final class UniOSAppModel: ObservableObject {
     }
 
     private func prepareTelegramForPhoneAuthentication() async throws -> TelegramService {
-        telegramSignInState = .working(message: "Preparing a fresh Telegram sign-in session.")
-        if let telegramService {
-            try await telegramService.destroyForFreshAuthentication()
+        telegramSignInState = .working(message: "Preparing the Telegram sign-in session.")
+        let telegramService = try await startTelegramSessionIfNeeded()
+
+        if telegramSignInState.acceptsPhoneNumber || telegramSignInState.isFailure {
+            return telegramService
         }
-        resetTelegramRuntimeStateForFreshAuthentication()
-        return try await startTelegramSessionIfNeeded()
+
+        if telegramSignInState.isReady {
+            telegramSignInState = .working(message: "Signing out the restored Telegram session before starting phone sign in.")
+            try await telegramService.logOut()
+            _ = try await telegramService.awaitPhoneNumberPrompt()
+            return telegramService
+        }
+
+        throw NSError(
+            domain: "UniOS.Telegram",
+            code: 5,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Telegram is already in another sign-in step. Finish the current code, password, or device confirmation flow before changing the phone number."
+            ]
+        )
     }
 
     private func ensureTelegramService() throws -> TelegramService {
@@ -1027,6 +1051,9 @@ final class UniOSAppModel: ObservableObject {
 
         switch newState {
         case .ready:
+            if suppressReadyActivationWhilePreparingPhoneAuthentication {
+                return
+            }
             if sessionSource != .telegram || !isAuthenticated {
                 Task { [weak self] in
                     await self?.activateTelegramSession()
@@ -1397,8 +1424,39 @@ final class UniOSAppModel: ObservableObject {
     }
 
     private func userFacingMessage(for error: any Swift.Error) -> String {
+        if let tdError = error as? TDLibKit.Error {
+            let message = tdError.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !message.isEmpty {
+                return friendlyTelegramErrorMessage(code: tdError.code, message: message)
+            }
+            return "Telegram returned error code \(tdError.code)."
+        }
+
         let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? "Telegram request failed." : text
+    }
+
+    private func friendlyTelegramErrorMessage(code: Int, message: String) -> String {
+        switch message {
+        case "API_ID_INVALID", "API_ID_PUBLISHED_FLOOD":
+            return "Telegram rejected the API ID embedded in this build."
+        case "API_HASH_INVALID":
+            return "Telegram rejected the API hash embedded in this build."
+        case "PHONE_NUMBER_INVALID":
+            return "Telegram rejected this phone number. Check the country code and formatting."
+        case "PHONE_NUMBER_FLOOD":
+            return "Telegram temporarily blocked repeated attempts for this phone number. Wait a while and try again."
+        case "PHONE_NUMBER_BANNED":
+            return "This phone number is banned by Telegram."
+        case "AUTH_RESTART":
+            return "Telegram asked to restart authentication. Retry the sign-in."
+        default:
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return "Telegram returned error code \(code)."
+            }
+            return trimmed
+        }
     }
 
     private func announce(_ text: String) {

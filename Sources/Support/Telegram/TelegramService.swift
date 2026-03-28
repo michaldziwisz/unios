@@ -209,6 +209,12 @@ final class TelegramService {
         hasConfiguredTDLibParameters = false
     }
 
+    func awaitPhoneNumberPrompt() async throws -> TelegramSignInState {
+        try await awaitAuthorizationState {
+            $0.acceptsPhoneNumber || $0.isFailure
+        }
+    }
+
     func submitPhoneNumber(_ phoneNumber: String) async throws {
         let state = try await awaitAuthorizationState {
             $0.acceptsPhoneNumber || $0.isReady || $0.isFailure
@@ -1689,6 +1695,14 @@ final class TelegramService {
     }
 
     private func userFacingMessage(for error: any Swift.Error) -> String {
+        if let tdError = error as? TDLibKit.Error {
+            let message = tdError.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !message.isEmpty {
+                return message
+            }
+            return "Telegram returned error code \(tdError.code)."
+        }
+
         let description = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         return description.isEmpty ? "Telegram request failed." : description
     }
