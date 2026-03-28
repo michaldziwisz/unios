@@ -5,6 +5,17 @@ UniOS.xcodeproj/
 *.xcarchive
 *.ipa
 *.xcresult
+*.ips
 Config/TelegramSecrets.xcconfig
 Config/VoIPEngine.xcconfig
+.artifacts/
+.venv-symbols/
 Vendor/
+!Vendor/
+Vendor/*
+!Vendor/PatchedTDLibKit/
+!Vendor/PatchedTDLibKit/**
+!Vendor/PatchedTDLibFramework/
+!Vendor/PatchedTDLibFramework/**
+Vendor/PatchedTDLibFramework/TDLibFramework.xcframework/
+Vendor/PatchedTDLibFramework/TDLibFramework.xcframework/**

@@ -32,6 +32,9 @@ jobs:
       - name: Install Bazelisk
         run: brew install bazelisk
 
+      - name: Install TDLib build dependencies
+        run: brew install gperf coreutils ccache cmake
+
       - name: Generate Telegram secrets xcconfig
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
@@ -52,6 +55,12 @@ jobs:
           chmod +x scripts/build_tgvoip_static_libs.sh
           chmod +x scripts/generate_voip_engine_xcconfig.sh
           ./scripts/build_tgvoip_static_libs.sh
+
+      - name: Build patched TDLibFramework xcframework
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build_patched_tdlibframework.sh
+          ./scripts/build_patched_tdlibframework.sh
 
       - name: Generate Xcode project
         run: xcodegen generate
