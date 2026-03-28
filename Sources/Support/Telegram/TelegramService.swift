@@ -154,6 +154,8 @@ final class TelegramService {
     private let client: TDLibClient
     private var activeCalls: [Int: ActiveCallSession] = [:]
     private var mediaEngines: [Int: TelegramCallMediaEngine] = [:]
+    private let tdlibConfigurationLock = NSLock()
+    private var tdlibConfigurationTask: Task<Void, Swift.Error>?
     private var hasConfiguredTDLibParameters = false
 
     init(configuration: TelegramAppConfiguration) {
@@ -206,7 +208,7 @@ final class TelegramService {
         activeCalls.removeAll()
 
         _ = try await client.close()
-        hasConfiguredTDLibParameters = false
+        resetTDLibConfigurationState(markConfigured: false)
     }
 
     func awaitPhoneNumberPrompt() async throws -> TelegramSignInState {
@@ -839,10 +841,7 @@ final class TelegramService {
     private func mapAuthorizationState(_ state: AuthorizationState) async throws -> TelegramSignInState {
         switch state {
         case .authorizationStateWaitTdlibParameters:
-            if !hasConfiguredTDLibParameters {
-                try await configureTDLib()
-                hasConfiguredTDLibParameters = true
-            }
+            try await ensureTDLibConfigured()
             return .working(message: "Preparing the Telegram session.")
 
         case .authorizationStateWaitPhoneNumber:
@@ -913,6 +912,47 @@ final class TelegramService {
             useSecretChats: true,
             useTestDc: configuration.useTestDC
         )
+    }
+
+    private func ensureTDLibConfigured() async throws {
+        let taskToAwait: Task<Void, Swift.Error>
+
+        tdlibConfigurationLock.lock()
+        if hasConfiguredTDLibParameters {
+            tdlibConfigurationLock.unlock()
+            return
+        }
+
+        if let existingTask = tdlibConfigurationTask {
+            taskToAwait = existingTask
+            tdlibConfigurationLock.unlock()
+        } else {
+            let newTask = Task { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                try await self.configureTDLib()
+            }
+            tdlibConfigurationTask = newTask
+            taskToAwait = newTask
+            tdlibConfigurationLock.unlock()
+        }
+
+        do {
+            try await taskToAwait.value
+            resetTDLibConfigurationState(markConfigured: true)
+        } catch {
+            resetTDLibConfigurationState(markConfigured: false)
+            throw error
+        }
+    }
+
+    private func resetTDLibConfigurationState(markConfigured: Bool) {
+        tdlibConfigurationLock.lock()
+        hasConfiguredTDLibParameters = markConfigured
+        tdlibConfigurationTask = nil
+        tdlibConfigurationLock.unlock()
     }
 
     private func runtimeDirectories(fileManager: FileManager = .default) throws -> (databaseDirectory: URL, filesDirectory: URL) {
