@@ -95,6 +95,26 @@ PY
 
   cp builder/tdlib-patches/build.sh td/example/ios
 
+  python3 - <<'PY'
+from pathlib import Path
+
+path = Path("td/example/ios/build.sh")
+text = path.read_text()
+
+old = """rm -rf build
+mkdir -p build
+cd build
+"""
+new = """mkdir -p build
+cd build
+"""
+
+if old not in text:
+    raise SystemExit("Could not find build directory reset block in td/example/ios/build.sh")
+
+path.write_text(text.replace(old, new, 1))
+PY
+
   (
     cd td
     rm -rf native-build
@@ -110,6 +130,14 @@ PY
       ./build-openssl.sh "${platform}"
       ./build.sh "${platform}" "$(python3 ../../../scripts/extract_os_version.py "${platform}")"
     )
+  done
+
+  for platform in "${PLATFORMS[@]}"; do
+    tdlib_static_lib="td/example/ios/build/install-${platform}/lib/libtdactor.a"
+    if [[ ! -f "${tdlib_static_lib}" ]]; then
+      echo "Expected TDLib static library is missing after build: ${tdlib_static_lib}"
+      exit 1
+    fi
   done
 
   (
