@@ -151,6 +151,7 @@ final class TelegramService {
     private let client: TDLibClient
     private var activeCalls: [Int: ActiveCallSession] = [:]
     private var mediaEngines: [Int: TelegramCallMediaEngine] = [:]
+    private var hasConfiguredTDLibParameters = false
 
     init(configuration: TelegramAppConfiguration) {
         final class UpdateRelay {
@@ -820,7 +821,10 @@ final class TelegramService {
     private func mapAuthorizationState(_ state: AuthorizationState) async throws -> TelegramSignInState {
         switch state {
         case .authorizationStateWaitTdlibParameters:
-            try await configureTDLib()
+            if !hasConfiguredTDLibParameters {
+                try await configureTDLib()
+                hasConfiguredTDLibParameters = true
+            }
             return .working(message: "Preparing the Telegram session.")
 
         case .authorizationStateWaitPhoneNumber:
