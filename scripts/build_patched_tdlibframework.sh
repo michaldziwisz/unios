@@ -25,8 +25,9 @@ git clone --depth 1 --branch "${TDLIBFRAMEWORK_TAG}" https://github.com/Swiftgra
 (
   cd "${WORK_DIR}"
   git submodule update --init --recursive
-  # TDLib aborts on OpenSSL 3 when it parses Telegram's embedded "BEGIN RSA PUBLIC KEY"
-  # with PEM_read_bio_PUBKEY. Patch in a fallback reader before building the framework.
+  # TDLib's OpenSSL 3 EVP path is unstable for Telegram's embedded
+  # "BEGIN RSA PUBLIC KEY". Force the legacy RSA PEM reader, which matches
+  # the actual PEM type and avoids the crashy EVP flow on-device.
   python3 - <<'PY'
 from pathlib import Path
 
@@ -48,43 +49,108 @@ new_includes = """#include <openssl/bio.h>
 #include <openssl/pem.h>
 """
 
-old_block = """#if OPENSSL_VERSION_NUMBER >= 0x30000000L && !defined(LIBRESSL_VERSION_NUMBER)
+old_reader = """#if OPENSSL_VERSION_NUMBER >= 0x30000000L && !defined(LIBRESSL_VERSION_NUMBER)
   EVP_PKEY *rsa = PEM_read_bio_PUBKEY(bio, nullptr, nullptr, nullptr);
 #else
   auto rsa = PEM_read_bio_RSAPublicKey(bio, nullptr, nullptr, nullptr);
 #endif
 """
-new_block = """#if OPENSSL_VERSION_NUMBER >= 0x30000000L && !defined(LIBRESSL_VERSION_NUMBER)
-  EVP_PKEY *rsa = PEM_read_bio_PUBKEY(bio, nullptr, nullptr, nullptr);
-  if (rsa == nullptr) {
-    BIO_reset(bio);
-    auto *legacy_rsa = PEM_read_bio_RSAPublicKey(bio, nullptr, nullptr, nullptr);
-    if (legacy_rsa != nullptr) {
-      auto *legacy_wrapper = EVP_PKEY_new();
-      if (legacy_wrapper == nullptr) {
-        RSA_free(legacy_rsa);
-        return Status::Error("Cannot create EVP_PKEY");
-      }
-      if (EVP_PKEY_assign_RSA(legacy_wrapper, legacy_rsa) != 1) {
-        EVP_PKEY_free(legacy_wrapper);
-        RSA_free(legacy_rsa);
-        return Status::Error("Cannot assign RSA public key");
-      }
-      rsa = legacy_wrapper;
-    }
+new_reader = """  auto *rsa = PEM_read_bio_RSAPublicKey(bio, nullptr, nullptr, nullptr);
+"""
+
+old_scope_exit = """  SCOPE_EXIT {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L && !defined(LIBRESSL_VERSION_NUMBER)
+    EVP_PKEY_free(rsa);
+#else
+    RSA_free(rsa);
+#endif
+  };
+"""
+new_scope_exit = """  SCOPE_EXIT {
+    RSA_free(rsa);
+  };
+"""
+
+old_size_check = """#if OPENSSL_VERSION_NUMBER >= 0x30000000L && !defined(LIBRESSL_VERSION_NUMBER)
+  if (!EVP_PKEY_is_a(rsa, "RSA")) {
+    return Status::Error("Key is not an RSA key");
+  }
+  if (EVP_PKEY_size(rsa) != 256) {
+    return Status::Error("EVP_PKEY_size != 256");
   }
 #else
-  auto rsa = PEM_read_bio_RSAPublicKey(bio, nullptr, nullptr, nullptr);
+  if (RSA_size(rsa) != 256) {
+    return Status::Error("RSA_size != 256");
+  }
 #endif
+"""
+new_size_check = """  if (RSA_size(rsa) != 256) {
+    return Status::Error("RSA_size != 256");
+  }
+"""
+
+old_bn_block = """#if OPENSSL_VERSION_NUMBER >= 0x30000000L && !defined(LIBRESSL_VERSION_NUMBER)
+  BIGNUM *n_num = nullptr;
+  BIGNUM *e_num = nullptr;
+
+  int res = EVP_PKEY_get_bn_param(rsa, "n", &n_num);
+  CHECK(res == 1 && n_num != nullptr);
+  res = EVP_PKEY_get_bn_param(rsa, "e", &e_num);
+  CHECK(res == 1 && e_num != nullptr);
+
+  auto n = static_cast<void *>(n_num);
+  auto e = static_cast<void *>(e_num);
+#else
+  const BIGNUM *n_num;
+  const BIGNUM *e_num;
+
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  RSA_get0_key(rsa, &n_num, &e_num, nullptr);
+#else
+  n_num = rsa->n;
+  e_num = rsa->e;
+#endif
+
+  auto n = static_cast<void *>(BN_dup(n_num));
+  auto e = static_cast<void *>(BN_dup(e_num));
+  if (n == nullptr || e == nullptr) {
+    return Status::Error("Cannot dup BIGNUM");
+  }
+#endif
+"""
+new_bn_block = """  const BIGNUM *n_num;
+  const BIGNUM *e_num;
+
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
+  RSA_get0_key(rsa, &n_num, &e_num, nullptr);
+#else
+  n_num = rsa->n;
+  e_num = rsa->e;
+#endif
+
+  auto n = static_cast<void *>(BN_dup(n_num));
+  auto e = static_cast<void *>(BN_dup(e_num));
+  if (n == nullptr || e == nullptr) {
+    return Status::Error("Cannot dup BIGNUM");
+  }
 """
 
 if old_includes not in text:
     raise SystemExit("Could not find OpenSSL include block in td/td/mtproto/RSA.cpp")
-if old_block not in text:
+if old_reader not in text:
     raise SystemExit("Could not find RSA PEM reader block in td/td/mtproto/RSA.cpp")
+if old_scope_exit not in text:
+    raise SystemExit("Could not find RSA free block in td/td/mtproto/RSA.cpp")
+if old_size_check not in text:
+    raise SystemExit("Could not find RSA size validation block in td/td/mtproto/RSA.cpp")
+if old_bn_block not in text:
+    raise SystemExit("Could not find RSA BIGNUM extraction block in td/td/mtproto/RSA.cpp")
 
 text = text.replace(old_includes, new_includes, 1)
-text = text.replace(old_block, new_block, 1)
+text = text.replace(old_reader, new_reader, 1)
+text = text.replace(old_scope_exit, new_scope_exit, 1)
+text = text.replace(old_size_check, new_size_check, 1)
+text = text.replace(old_bn_block, new_bn_block, 1)
 path.write_text(text)
 PY
 
