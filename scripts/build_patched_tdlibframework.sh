@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK_DIR="${ROOT_DIR}/build/PatchedTDLibFrameworkSource"
 OUTPUT_DIR="${ROOT_DIR}/Vendor/PatchedTDLibFramework"
 TDLIBFRAMEWORK_TAG="${TDLIBFRAMEWORK_TAG:-1.8.62-af0cb1d3}"
+TUIST_VERSION="${TUIST_VERSION:-4.10.2}"
 PLATFORMS=("iOS" "iOS-simulator")
 
 if ! command -v cmake >/dev/null 2>&1; then
@@ -144,14 +145,15 @@ PY
     cd builder
     ./patch-headers.sh
 
-    if ! command -v mise >/dev/null 2>&1; then
-      curl https://mise.run | sh
-      export PATH="${HOME}/.local/bin:${PATH}"
+    if ! command -v tuist >/dev/null 2>&1; then
+      tuist_dir="${ROOT_DIR}/build/tools/tuist-${TUIST_VERSION}"
+      rm -rf "${tuist_dir}"
+      mkdir -p "${tuist_dir}"
+      curl -L "https://github.com/tuist/tuist/releases/download/${TUIST_VERSION}/tuist.zip" -o "${tuist_dir}/tuist.zip"
+      unzip -q "${tuist_dir}/tuist.zip" -d "${tuist_dir}"
+      chmod +x "${tuist_dir}/tuist"
+      export PATH="${tuist_dir}:${PATH}"
     fi
-
-    export PATH="${HOME}/.local/bin:${PATH}"
-    mise install
-    eval "$(mise activate bash --shims)"
 
     TUIST_PLATFORM="iOS,iOS-simulator" tuist generate
     ./build-framework.sh iOS
