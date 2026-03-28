@@ -28,9 +28,5 @@ let package = Package(
             name: "TDLibKit",
             dependencies: ["TDLibFramework"]
         ),
-        .testTarget(
-            name: "TDLibKitTests",
-            dependencies: ["TDLibKit"]
-        ),
     ]
 )
